@@ -19,7 +19,8 @@ open Feliz.Bulma
 open Feliz.ReactEditor
 
 type ISavedState =
-    abstract code: string
+    abstract names: string array
+    abstract codes: string array
     abstract html: string
     abstract css: string
 
@@ -28,8 +29,27 @@ let private Worker(): Worker =
     Worker.Create(Literals.WORKER_BUNDLE_URL)
 
 let private loadState(_key: string): ISavedState = importMember "./js/util.js"
-let private saveState(_key: string, _code: string, _html: string, _cssCode : string): unit = importMember "./js/util.js"
-let private updateQuery(_fsharpCode : string, _htmlCode : string, _cssCode : string): unit = importMember "./js/util.js"
+let private saveState(_key: string, _names : string array, _codes: string array, _html: string, _cssCode : string): unit = importMember "./js/util.js"
+let private updateQuery(_names : string array, _fsharpCodes : string array, _htmlCode : string, _cssCode : string): unit = importMember "./js/util.js"
+
+module private State =
+    let save(_key: string, _fsharpCode: FSharpCodeFile list, _html: string, _cssCode : string): unit =
+        saveState(_key, _fsharpCode |> List.map (fun x -> x.Name) |> Array.ofList, _fsharpCode |> List.map (fun x -> x.Content) |> Array.ofList, _html, _cssCode)
+
+    let load (_key : string ) =
+        let res = loadState _key
+        //Browser.Dom.console.dir(res)
+        res
+        // with
+        //     |x ->
+        //         System.Console.WriteLine("loadState: failed: " + x.Message)
+        //         { new ISavedState with
+        //             member _.code = [| { Name = ""; Content = "" } |]
+        //             member _.html = ""
+        //             member _.css = "" }
+
+    let update (_fsharpCode : FSharpCodeFile list, _htmlCode : string, _cssCode : string) =
+        updateQuery(_fsharpCode |> List.map (fun x -> x.Name) |> Array.ofList, _fsharpCode |> List.map (fun x -> x.Content) |> Array.ofList, _htmlCode, _cssCode)
 
 type IEditor = Monaco.Editor.IStandaloneCodeEditor
 
@@ -46,7 +66,7 @@ type OutputTab =
 
 [<RequireQualifiedAccess>]
 type CodeTab =
-    | FSharp
+    | FSharp of string
     | Html
     | Css
 
@@ -61,15 +81,15 @@ type EditorCollapse =
 
 type Model =
     {
-        FSharpEditor: IEditor
+        FSharpEditors: Map<string,IEditor>
         JsEditor: IEditor
         Worker: ObservableWorker<WorkerAnswer>
         State: State
         IFrameUrl : string
         OutputTab : OutputTab
         CodeTab : CodeTab
-        CodeES2015: string
-        FSharpCode : string
+        CodeES2015: string[]
+        FSharpCode : FSharpCodeFile list
         FSharpErrors : Monaco.Editor.IMarkerData[]
         HtmlCode: string
         CssCode: string
@@ -80,10 +100,10 @@ type Model =
         Logs : ConsolePanel.Log list
     }
 
-type EndCompileStatus = Result<string * Fable.Standalone.Error[], string>
+type EndCompileStatus = Result<string[] * Fable.Standalone.Error[], string>
 
 type Msg =
-    | SetFSharpEditor of IEditor
+    | SetFSharpEditor of (string*IEditor)
     | SetJsEditor of IEditor
     | LoadSuccess of version: string
     | LoadFail
@@ -94,7 +114,7 @@ type Msg =
     | LoadGistError of exn
     | LoadGist of string
     | MarkEditorErrors of Fable.Standalone.Error[]
-    | StartCompile of string option
+    | StartCompile of FSharpCodeFile list option
     | EndCompile of EndCompileStatus
     | UpdateStats of CompileStats
     | ShareableUrlReady of unit
@@ -119,6 +139,9 @@ type Msg =
     | ChangeCssCode of string
     | UpdateQueryFailed of exn
     | RefreshIframe
+
+let isFSharpTab (tab:CodeTab) =
+    match tab with CodeTab.FSharp _ -> true |_->false
 
 // Custom error message
 let errorString (response: Response) =
@@ -146,9 +169,10 @@ let private addLog log (model : Model) =
                 model.Logs @ [log]
     }
 
-let private generateHtmlUrl (model: Model) jsCode =
-    saveState(Literals.STORAGE_KEY, model.FSharpCode, model.HtmlCode, model.CssCode)
-    Generator.generateHtmlBlobUrl model.HtmlCode model.CssCode jsCode
+let private generateHtmlUrl (model: Model) (jsCode : string array) =
+    State.save(Literals.STORAGE_KEY, model.FSharpCode, model.HtmlCode, model.CssCode)
+    let names = model.FSharpCode |> List.map (fun x -> x.Name) |> Array.ofList
+    Generator.generateHtmlBlobUrl model.HtmlCode model.CssCode jsCode names
 
 let private clamp min max value =
     if value >= max
@@ -233,12 +257,17 @@ open FSharp.Reflection
 let update msg (model : Model) =
     match msg with
     | LoadSuccess version ->
-        let activateParsing dispatch =
+        let activateParsingFor (editor:IEditor) dispatch =
             let obs = createObservable(fun trigger ->
-                model.FSharpEditor.getModel().onDidChangeContent(fun _ -> trigger()) |> ignore)
+                editor.getModel().onDidChangeContent(fun _ -> trigger()) |> ignore)
             debounce 1000 obs
             |> Observable.add (fun () -> dispatch ParseEditorCode)
             obs.Trigger() // Trigger a first parse
+
+        let activateParsing dispatch =
+            for kv in model.FSharpEditors do
+                ()
+                //activateParsingFor kv.Value dispatch
 
         let browserAdviceCommand =
             // if not ReactDeviceDetect.exports.isChrome
@@ -272,14 +301,16 @@ let update msg (model : Model) =
         , showGlobalErrorToast msg
 
     | ParseEditorCode ->
-        let content = model.FSharpEditor.getModel().getValue (Monaco.Editor.EndOfLinePreference.TextDefined, true)
-        ParseCode(content, model.Sidebar.Options.ToOtherFSharpOptions) |> model.Worker.Post
+        for kv in model.FSharpEditors do
+            let ed = kv.Value
+            let content = ed.getModel().getValue (Monaco.Editor.EndOfLinePreference.TextDefined, true)
+            ParseCode(content, model.Sidebar.Options.ToOtherFSharpOptions) |> model.Worker.Post
         model
         , Cmd.none
 
-    | SetFSharpEditor ed ->
+    | SetFSharpEditor (name,ed) ->
         { model with
-            FSharpEditor = ed
+            FSharpEditors = model.FSharpEditors.Add(name,ed)
         }
         , Cmd.none
 
@@ -301,12 +332,15 @@ let update msg (model : Model) =
 
     | Reset ->
         window.localStorage.removeItem(Literals.STORAGE_KEY)
-        let saved = loadState(Literals.STORAGE_KEY)
+        let saved = State.load(Literals.STORAGE_KEY)
         { model with
-            FSharpCode = saved.code
+            FSharpCode =
+                Array.zip (saved.codes) (saved.names)
+                |> Array.map (fun (code,name) -> { Content = code; Name = name })
+                |> List.ofArray
             HtmlCode = saved.html
             CssCode = saved.css
-            CodeES2015 = ""
+            CodeES2015 = saved.codes |> Array.map (fun _ -> "")
             IFrameUrl = ""
             Logs = []
         }
@@ -314,11 +348,12 @@ let update msg (model : Model) =
 
     | GistLoaded (code, html, css) ->
         { model with
-            FSharpCode = code
+            FSharpCode = [ { Name = "Gist.fs"; Content = code } ]
             HtmlCode = html
             CssCode = css
+            CodeES2015 = [| "" |]
         }
-        , Cmd.ofMsg (StartCompile (Some code))
+        , Cmd.ofMsg (StartCompile (Some model.FSharpCode))
 
     | GistUrlReady gist ->
         model
@@ -344,13 +379,17 @@ let update msg (model : Model) =
             |> Toast.warning
 
     | UrlHashChange ->
-        let parsed = loadState(Literals.STORAGE_KEY)
+        let parsed = State.load(Literals.STORAGE_KEY)
         { model with
-            FSharpCode = parsed.code
+            FSharpCode =
+                Array.zip (parsed.codes) (parsed.names)
+                |> Array.map (fun (code,name) -> { Content = code; Name = name })
+                |> List.ofArray
             HtmlCode = parsed.html
             CssCode = parsed.css
+            CodeES2015 = parsed.codes |> Array.map (fun _ -> "")
         }
-        , Cmd.ofMsg (StartCompile (Some parsed.code))
+        , Cmd.ofMsg (StartCompile (Some model.FSharpCode))
 
     | MarkEditorErrors errors ->
         { model with
@@ -370,7 +409,7 @@ let update msg (model : Model) =
                 | Some code -> code
                 | None -> model.FSharpCode
             let opts = model.Sidebar.Options
-            CompileCode(code, opts.ToOtherFSharpOptions) |> model.Worker.Post
+            CompileCodeArray(code |> Array.ofList, opts.ToOtherFSharpOptions) |> model.Worker.Post
 
             { model with
                 State = Compiling
@@ -501,12 +540,13 @@ let update msg (model : Model) =
                     FSharpCode = fsharpCode
                     HtmlCode = htmlCode
                     CssCode = cssCode
+                    CodeES2015 = fsharpCode |> List.map (fun _ -> "") |> Array.ofList
                 }
                 , cmd
 
             | Sidebar.Share ->
                 model
-                , Cmd.OfFunc.either updateQuery (model.FSharpCode, model.HtmlCode, model.CssCode) ShareableUrlReady UpdateQueryFailed
+                , Cmd.OfFunc.either State.update (model.FSharpCode, model.HtmlCode, model.CssCode) ShareableUrlReady UpdateQueryFailed
 
             | Sidebar.Reset ->
                 model
@@ -516,7 +556,7 @@ let update msg (model : Model) =
                 model
                 , match subModel.Options.GistToken with
                     | Some token ->
-                        Cmd.OfPromise.either postToGist (token, model.FSharpCode, model.HtmlCode, model.CssCode) GistUrlReady ShareGistError
+                        Cmd.OfPromise.either postToGist (token, model.FSharpCode.Head.Content, model.HtmlCode, model.CssCode) GistUrlReady ShareGistError
                     | None ->
                         Cmd.ofMsg NoToken
 
@@ -538,7 +578,8 @@ let update msg (model : Model) =
 
     | ChangeFsharpCode newCode ->
         { model with
-            FSharpCode = newCode
+            FSharpCode = [ { Name = "App.fs"; Content = newCode } ]
+            CodeES2015 = [| "" |]
         }
         , Cmd.none
 
@@ -585,11 +626,13 @@ let update msg (model : Model) =
 
     | RefreshIframe ->
         let jsCode = model.JsEditor.getValue()
+        let codeA = [| jsCode |]
+        let namesA = model.FSharpCode |> List.map (fun x -> x.Name) |> Array.ofList
         { model with
-            CodeES2015 = jsCode
+            CodeES2015 = codeA
             Logs = [ ConsolePanel.Log.Separator ]
         }
-        , Cmd.OfFunc.perform (Generator.generateHtmlBlobUrl model.HtmlCode model.CssCode) jsCode SetIFrameUrl
+        , Cmd.OfFunc.perform (Generator.generateHtmlBlobUrl model.HtmlCode model.CssCode codeA) namesA SetIFrameUrl
 
     | AddConsoleLog content ->
         model
@@ -626,7 +669,7 @@ let workerCmd (worker : ObservableWorker<_>)=
     [ handler ]
 
 let init () =
-    let saved = loadState(Literals.STORAGE_KEY)
+    let saved = State.load(Literals.STORAGE_KEY)
     let sidebarModel, sidebarCmd = Sidebar.init ()
     let worker = ObservableWorker(Worker(), WorkerAnswer.Decoder, "MAIN APP")
     CreateChecker(Literals.METADATA_DIR, Literals.EXTRA_REFS, Some ".txt", sidebarModel.Options.ToOtherFSharpOptions)
@@ -645,21 +688,24 @@ let init () =
 
     {
         State = Loading
-        FSharpEditor = Unchecked.defaultof<IEditor>
+        FSharpEditors = Map.empty
         JsEditor = Unchecked.defaultof<IEditor>
         Worker = worker
         IFrameUrl = ""
         OutputTab = OutputTab.Live
-        CodeTab = CodeTab.FSharp
-        CodeES2015 = ""
-        FSharpCode = saved.code
+        CodeTab = CodeTab.FSharp (saved.names.[0])
+        CodeES2015 = saved.codes |> Array.map (fun _ -> "")
+        FSharpCode =
+                Array.zip (saved.codes) (saved.names)
+                |> Array.map (fun (code,name) -> { Content = code; Name = name })
+                |> List.ofArray
         FSharpErrors = [||]
         HtmlCode = saved.html
         CssCode = saved.css
         DragTarget = NoTarget
         PanelSplitRatio = 0.5
         Sidebar = sidebarModel
-        IsProblemsPanelExpanded = true
+        IsProblemsPanelExpanded = false
         Logs = []
     }, cmd
 
@@ -712,23 +758,25 @@ let private fsharpEditorOptions (fontSize : float) (fontFamily : string) =
         o.fixedOverflowWidgets <- Some true
     )
 
-let private editorTabs (activeTab : CodeTab) dispatch =
+let private editorTabs (model : Model) dispatch =
+    let activeTab = model.CodeTab
     Bulma.tabs [
         tabs.isCentered
         tabs.isMedium
         tabs.isToggle
         prop.children [
             Html.ul [
-                Html.li [
-                    if (activeTab = CodeTab.FSharp) then
-                        prop.className "is-active"
-                    prop.onClick (fun _ -> SetCodeTab CodeTab.FSharp |> dispatch)
-                    prop.children [
-                        Html.a [
-                            prop.text "F#"
+                for fc in model.FSharpCode do
+                    Html.li [
+                        if (activeTab = CodeTab.FSharp fc.Name) then
+                            prop.className "is-active"
+                        prop.onClick (fun _ -> SetCodeTab (CodeTab.FSharp fc.Name) |> dispatch)
+                        prop.children [
+                            Html.a [
+                                prop.text fc.Name
+                            ]
                         ]
                     ]
-                ]
 
                 Html.li [
                     if (activeTab = CodeTab.Html) then
@@ -755,7 +803,9 @@ let private editorTabs (activeTab : CodeTab) dispatch =
         ]
     ]
 
-let private problemsPanel (isExpanded : bool) (errors : Monaco.Editor.IMarkerData[]) (currentTab : CodeTab) dispatch =
+let private problemsPanel (model:Model) dispatch =
+    let (isExpanded, errors, currentTab) = (model.IsProblemsPanelExpanded, model.FSharpErrors, model.CodeTab)
+
     let bodyDisplay =
         if isExpanded then
             ""
@@ -834,8 +884,8 @@ let private problemsPanel (isExpanded : bool) (errors : Monaco.Editor.IMarkerDat
                             Html.div [
                                 prop.className ("scrollable-panel-body-row " + colorClass)
                                 prop.onClick (fun _ ->
-                                    if currentTab <> CodeTab.FSharp then
-                                        SetCodeTab CodeTab.FSharp |> dispatch
+                                    if (not (isFSharpTab currentTab)) then
+                                        SetCodeTab (CodeTab.FSharp model.FSharpCode.Head.Name) |> dispatch
                                     ReactEditor.Dispatch.cursorMove "fsharp_cursor_jump" error
                                 )
                                 prop.children [
@@ -889,11 +939,11 @@ let private onJsEditorDidMount model dispatch =
                 editor.addCommand(monacoModule.KeyMod.CtrlCmd ||| int Monaco.KeyCode.KEY_S, triggerCompile, "") |> ignore
     )
 
-let private onFSharpEditorDidMount model dispatch =
+let private onFSharpEditorDidMount (name:string) model dispatch =
     System.Func<_,_,_>(
         fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
             if not (isNull editor) then
-                dispatch (SetFSharpEditor editor)
+                dispatch (SetFSharpEditor (name,editor))
 
                 // Because we have access to the monacoModule here,
                 // register the different provider needed for F# editor
@@ -945,7 +995,7 @@ let private editorArea model dispatch =
             style.position.relative
         ]
         prop.children [
-            editorTabs model.CodeTab dispatch
+            editorTabs model dispatch
             // Html editor
             ReactEditor.editor [
                 editor.options (htmlEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
@@ -964,18 +1014,22 @@ let private editorArea model dispatch =
                 editor.onChange (ChangeCssCode >> dispatch)
                 editor.editorDidMount (registerCompileCommand dispatch)
             ]
+
             // F# editor
-            ReactEditor.editor [
-                editor.options (fsharpEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
-                editor.value model.FSharpCode
-                editor.isHidden (model.CodeTab <> CodeTab.FSharp)
-                editor.onChange (ChangeFsharpCode >> dispatch)
-                editor.errors model.FSharpErrors
-                editor.eventId "fsharp_cursor_jump"
-                editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
-                editor.editorDidMount (onFSharpEditorDidMount model dispatch)
-            ]
-            problemsPanel model.IsProblemsPanelExpanded model.FSharpErrors model.CodeTab dispatch
+            for fc in model.FSharpCode do
+                ReactEditor.editor [
+                    editor.options (fsharpEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
+                    editor.value fc.Content
+                    editor.isHidden (model.CodeTab <> (CodeTab.FSharp fc.Name))
+                    editor.onChange (ChangeFsharpCode >> dispatch)
+                    editor.errors model.FSharpErrors
+                    editor.eventId "fsharp_cursor_jump"
+                    editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
+                    editor.editorDidMount (onFSharpEditorDidMount (fc.Name) model dispatch)
+                ]
+
+            //problemsPanel model.IsProblemsPanelExpanded model.FSharpErrors model.CodeTab dispatch
+            problemsPanel model dispatch
         ]
     ]
 
@@ -1040,9 +1094,17 @@ let private viewCodeEditor (model: Model) dispatch =
                         o.fontLigatures <- Some (fontFamily = "Fira Code")
                     )
 
+    console.log(model.FSharpCode.Length)
+    console.log(model.CodeES2015.Length)
+
     ReactEditor.editor [
         editor.options options
-        editor.value model.CodeES2015
+        editor.value
+            (model.FSharpCode
+                |> List.map (fun fc -> fc.Name)
+                |> Array.ofList
+                |> Array.zip model.CodeES2015
+                |> Array.fold (fun s (code,name) -> s + "// File: " + name + "\n" + code + "\n\n") "")
         editor.isHidden (model.OutputTab <> OutputTab.Code)
         editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
         editor.editorDidMount (onJsEditorDidMount model dispatch)
@@ -1106,6 +1168,7 @@ let view (model: Model) dispatch =
                             Html.div [
                                 prop.className "main-content"
                                 prop.children [
+
                                     editorArea model dispatch
 
                                     Html.div [

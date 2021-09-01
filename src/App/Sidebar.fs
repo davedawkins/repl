@@ -25,7 +25,7 @@ type Msg =
     | UpdateStats of Widgets.Stats.Model
 
 type ExternalMsg =
-    | LoadSample of fsharp : string * html : string * css : string
+    | LoadSample of fsharp : Fable.WebWorker.FSharpCodeFile list * html : string * css : string
     | NoOp
     | Reset
     | StartCompile
@@ -36,9 +36,9 @@ type ExternalMsg =
 let init () =
     let samplesModel, samplesCmd = Widgets.Samples.init ()
     {
-        IsExpanded = false
+        IsExpanded = true
         FableVersion = "0.0.0"
-        WidgetsState = Set.empty
+        WidgetsState = Set.empty.Add("General").Add("Options").Add("Statistics").Add("About")
         General = Widgets.General.init()
         Samples = samplesModel
         Options = Widgets.Options.init ()
@@ -239,9 +239,9 @@ let private sidebarContainer dispatch (sections : ReactElement list) =
                 prop.className "brand"
                 prop.children [
                     Html.img [
-                        prop.src "img/fable-ionide.png"
+                        prop.src "https://sutil.dev/images/logo-wide.png"
                     ]
-                    Bulma.title.h4 "Fable REPL"
+                    //Bulma.title.h4 "<#> sutil repl"
                 ]
             ]
 
@@ -272,9 +272,9 @@ let private expandButton dispatch =
 let view (isCompiling : bool) (model: Model) dispatch =
     let widgets =
         [
+            "Samples", Fa.Solid.Book, Widgets.Samples.view model.Samples (SamplesMsg >> dispatch), Some 500
             if model.IsExpanded then
                 "General", Fa.Solid.Th, Widgets.General.viewExpanded isCompiling model.Options.GistToken model.General (GeneralMsg >> dispatch), None
-            "Samples", Fa.Solid.Book, Widgets.Samples.view model.Samples (SamplesMsg >> dispatch), Some 500
             "Options", Fa.Solid.Cog, Widgets.Options.view model.Options (OptionsMsg >> dispatch), None
             "Statistics", Fa.Regular.Clock, Widgets.Stats.view model.Statistics, None
             "About", Fa.Solid.Info, Widgets.About.view model.FableVersion, None

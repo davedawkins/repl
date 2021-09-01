@@ -6,7 +6,8 @@ function parseQuery() {
     var query = window.location.hash.replace(/^\#\?/, '');
 
     if (!query) {
-      return null;
+        console.log("No query");
+        return null;
     }
 
     return query.split('&').map(function(param) {
@@ -19,17 +20,20 @@ function parseQuery() {
     }).reduce(function(params, param){
       if (param.key && param.value) {
         params[param.key] =
-          param.key === "code" || param.key === "html" || param.key === "css"
-            ? lzString.decompressFromEncodedURIComponent(param.value)
-            : decodeURIComponent(param.value);
+          param.key === "codes" || param.key === "names"
+            ? JSON.parse(lzString.decompressFromEncodedURIComponent(param.value))
+            : param.key === "html" || param.key === "css"
+                ? lzString.decompressFromEncodedURIComponent(param.value)
+                : decodeURIComponent(param.value);
       }
       return params;
     }, {});
 }
 
-export function updateQuery(code, html, css) {
+export function updateQuery(names, codes, html, css) {
     var object =
-        { code : lzString.compressToEncodedURIComponent(code),
+        { names : lzString.compressToEncodedURIComponent(JSON.stringify(names)),
+          codes : lzString.compressToEncodedURIComponent(JSON.stringify(codes)),
           html : lzString.compressToEncodedURIComponent(html),
           css : lzString.compressToEncodedURIComponent(css) };
     var query = Object.keys(object).map(function(key) {
@@ -41,7 +45,8 @@ export function updateQuery(code, html, css) {
 
 export function loadState(key) {
     return Object.assign({
-        code: "// Write code or load a sample from sidebar",
+        names: [ "App.fs" ],
+        codes: [ "// Write code or load a sample from sidebar" ],
         html: "",
         css: ""
       },
@@ -50,6 +55,7 @@ export function loadState(key) {
     );
 }
 
-export function saveState(key, code, html, css) {
-    window.localStorage.setItem(key, JSON.stringify({ code, html, css }));
+export function saveState(key, names, codes, html, css) {
+    const payload = JSON.stringify({ names, codes, html, css });
+    window.localStorage.setItem(key, payload);
 }

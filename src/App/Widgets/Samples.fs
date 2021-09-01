@@ -34,7 +34,7 @@ and SubCategory =
 
 and MenuItemInfo =
     { Label : string
-      FSharpCode : string
+      FSharpCode : string list
       HtmlCode : CodeInfo
       CssCode : CodeInfo }
 
@@ -47,7 +47,7 @@ and MenuType =
         Decode.object (fun get ->
             MenuItem
                 { Label = get.Required.Field "label" Decode.string
-                  FSharpCode = get.Required.Field "fsharpCode" Decode.string
+                  FSharpCode = get.Required.Field "fsharpCode" (Decode.list Decode.string)
                   HtmlCode = get.Optional.Field "htmlCode" decodeCodeInfo
                                 |> Option.defaultValue Default
                   CssCode = get.Optional.Field "cssCode" decodeCodeInfo
@@ -102,13 +102,13 @@ type Msg =
     | FetchSamplesSuccess of obj
     | FetchSamplesError of exn
     | ToggleMenuState of int list
-    | FetchSample of fsharp : string * html : CodeInfo * css : CodeInfo
-    | FetchCodeSuccess of fsharp : string * html : string * css : string
+    | FetchSample of fsharp : string list * html : CodeInfo * css : CodeInfo
+    | FetchCodeSuccess of fsharp : Fable.WebWorker.FSharpCodeFile list * html : string * css : string
     | FetchCodeError of exn
 
 type ExternalMsg =
     | NoOp
-    | LoadSample of FSharpCode : string * HtmlCode : string * CssCode : string
+    | LoadSample of FSharpCode : Fable.WebWorker.FSharpCodeFile list * HtmlCode : string * CssCode : string
 
 let rec updateSubCategoryState (path : int list) (menus : MenuType list) =
     menus
@@ -131,11 +131,30 @@ let rec updateSubCategoryState (path : int list) (menus : MenuType list) =
             menu
     )
 
-let getCodeFromUrl (fsharpUrl, htmlInfo, cssInfo) =
+let getCodeFromUrl (fsharpUrl:string list, htmlInfo, cssInfo) =
+    let fetchOneFs name =
+        promise {
+            let url = "samples/" + name
+            Browser.Dom.console.log($"fetch: {url}  name={name}")
+            let! fsharpRes = Fetch.fetch url []
+            return! fsharpRes.text()
+        }
+
+    let getFileName (path : string) =
+        path.Split( [| '/'; '\\' |]) |> Array.tryLast |> Option.defaultValue path
+
     promise {
-        let url = "samples/" + fsharpUrl
-        let! fsharpRes = Fetch.fetch url []
-        let! fsharpCode = fsharpRes.text()
+        // Fetch all the sample FS file content first
+        let! fsharpCodeArray = fsharpUrl |> List.map fetchOneFs |> Promise.all
+
+        //... then pair them off with their source file name into a list of FSharpCodeFile records
+        let fsharpNamedCode =
+            fsharpCodeArray
+            |> Array.toList
+            |> List.zip fsharpUrl
+            |> List.map (fun (url,content) ->
+                Browser.Dom.console.log($"url={url} ")
+                { Fable.WebWorker.Name = getFileName url; Fable.WebWorker.Content = content})
 
         let! htmlCode =
             promise {
@@ -157,8 +176,7 @@ let getCodeFromUrl (fsharpUrl, htmlInfo, cssInfo) =
                     return! cssRes.text()
             }
 
-        return fsharpCode, htmlCode, cssCode
-
+        return fsharpNamedCode, htmlCode, cssCode
     }
 
 
@@ -311,8 +329,8 @@ let view model dispatch =
             ]
 
 
-        additionalMenu::menus
+        (* additionalMenu:: *)
+        menus
 #endif
 
     Bulma.menu menus
-    

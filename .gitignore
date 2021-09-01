@@ -1,6 +1,7 @@
 *.fs.js
 public/js
 public/libs
+public/samples/sutil-samples
 public/metadata
 src/Standalone/
 deploy/

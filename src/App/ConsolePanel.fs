@@ -22,7 +22,7 @@ type ConsolePanelState =
 
 let renderShowLog faIcon colorClass (content : string) =
     Html.div [
-        prop.className [ 
+        prop.className [
             "scrollable-panel-body-row"
             colorClass
         ]
@@ -32,9 +32,9 @@ let renderShowLog faIcon colorClass (content : string) =
                 prop.className colorClass
                 prop.children [
                     match faIcon with
-                    | Some faIcon -> 
+                    | Some faIcon ->
                         Fa.i [ faIcon ] [ ]
-                    | None -> 
+                    | None ->
                         Html.none
                 ]
             ]
@@ -56,7 +56,7 @@ let renderShowSeparator =
     ]
 
 let renderBody (isExpanded : bool) (logs : Log list) (setConsoleEnd : HTMLElement -> unit) onContainerScroll =
-    
+
     Html.div [
         prop.className "scrollable-panel-body"
         if not isExpanded then
@@ -73,19 +73,19 @@ let renderBody (isExpanded : bool) (logs : Log list) (setConsoleEnd : HTMLElemen
                     renderShowLog (Some Fa.Regular.TimesCircle) "is-danger" content
                 | Log.Separator ->
                     renderShowSeparator
-            
-            Html.div [ 
+
+            Html.div [
                 prop.ref (fun el ->
                     setConsoleEnd(el :?> HTMLElement)
-                ) 
+                )
             ]
         ]
-    ]        
+    ]
 
 
-let consolePanel = 
+let consolePanel =
     React.functionComponent(fun (props : ConsolePanelProps) ->
-        let (isExpanded, setIsExpanded) = React.useState (true)
+        let (isExpanded, setIsExpanded) = React.useState (false)
         let (consoleEnd, setConsoleEnd) : (HTMLElement * (HTMLElement -> unit)) = React.useState (null)
         let (autoScroll, setAutoScroll) = React.useState (true)
 
@@ -107,8 +107,8 @@ let consolePanel =
 
                 if not (isNull consoleEnd) then
                     consoleEnd?scrollIntoView$(scrollOptions)
-            
-        , [| box props.Logs |]) 
+
+        , [| box props.Logs |])
 
         let headerIcon =
             if isExpanded then
@@ -119,8 +119,8 @@ let consolePanel =
         Html.div [
             prop.className "scrollable-panel is-console"
             prop.children [
-                Html.div [ 
-                    prop.className "scrollable-panel-header"  
+                Html.div [
+                    prop.className "scrollable-panel-header"
                     prop.onClick (fun _ -> setIsExpanded (not isExpanded))
                     prop.children [
                         Html.div [

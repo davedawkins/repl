@@ -2,7 +2,7 @@
 @import '~bulma/bulma';
 @import './monaco-editor-hover-content.sass';
 @import '~bulma-switch/dist/css/bulma-switch.sass';
-@import '~bulma-tooltip/src/sass/index'; 
+@import '~bulma-tooltip/src/sass/index';
 @import './menu-group';
 @import './toast.scss';
 @import './scrollable-panel.scss';
@@ -85,22 +85,24 @@ div.is-loading {
         }
 
         .brand {
+            background-color: white;
             height: $icon-dimensions-large;
             display: flex;
-            justify-content: center;
+            padding-left: 12px;
+            //justify-content: center;
             align-items: center;
             padding-top: .5rem;
             padding-bottom: .5rem;
             box-shadow: -1px 0px 1px 0px #f2f2f2;
-            z-index: 10; // Make sure to display the shadow in expanded/collapsed 
+            z-index: 10; // Make sure to display the shadow in expanded/collapsed
 
             img {
-                width: 32px;
+                width: 96px;
             }
 
             h4 {
-                text-align: center;
-                width: 50%;
+                text-align: left;
+                //width: 50%;
             }
         }
 
@@ -253,11 +255,11 @@ div.is-loading {
                 color: $warning;
                 text-align: center;
             }
-            
+
             .reset-confirmation-modal-content-foot {
                 margin-top: 1rem;
             }
         }
-        
+
     }
 }

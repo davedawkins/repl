@@ -7,7 +7,7 @@ open Fable.Core
 [<RequireQualifiedAccess>]
 module Literals =
     let [<Literal>] REPL_VERSION = "3.2.11" // Do not edit manually
-    let [<Literal>] STORAGE_KEY = "fable-repl"
+    let [<Literal>] STORAGE_KEY = "fable-repl-v2"
     let [<Literal>] MAX_LOGS_LENGTH = 200
     // let [<Literal>] HOST =
     let HOST =
@@ -15,7 +15,7 @@ module Literals =
         // "http://localhost:8080"
         Browser.Dom.window.location.href
 #else
-        "https://fable.io/repl/"
+        "https://sutil.dev/repl/"
 #endif
     let (*[<Literal>]*) SAMPLES_JSON_URL = HOST + "samples/samples.json"
     let (*[<Literal>]*) REPL_LIB_MAP_JSON_URL = HOST + "repl-lib-map.json"
