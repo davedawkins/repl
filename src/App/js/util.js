@@ -6,7 +6,6 @@ function parseQuery() {
     var query = window.location.hash.replace(/^\#\?/, '');
 
     if (!query) {
-        console.log("No query");
         return null;
     }
 
@@ -45,7 +44,7 @@ export function updateQuery(names, codes, html, css) {
 
 export function loadState(key) {
     return Object.assign({
-        names: [ "App.fs" ],
+        names: [ "Default.fs" ],
         codes: [ "// Write code or load a sample from sidebar" ],
         html: "",
         css: ""

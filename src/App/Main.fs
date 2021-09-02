@@ -540,6 +540,7 @@ let update msg (model : Model) =
                     FSharpCode = fsharpCode
                     HtmlCode = htmlCode
                     CssCode = cssCode
+                    CodeTab = CodeTab.FSharp (fsharpCode |> List.last).Name
                     CodeES2015 = fsharpCode |> List.map (fun _ -> "") |> Array.ofList
                 }
                 , cmd
@@ -577,9 +578,15 @@ let update msg (model : Model) =
         ]
 
     | ChangeFsharpCode newCode ->
+        let newFsCode =
+            match model.CodeTab with
+            | CodeTab.FSharp name ->
+                model.FSharpCode |> List.map (fun fc -> if fc.Name = name then { Name = name; Content = newCode } else fc)
+            | _ -> model.FSharpCode
+
+
         { model with
-            FSharpCode = [ { Name = "App.fs"; Content = newCode } ]
-            CodeES2015 = [| "" |]
+            FSharpCode = newFsCode
         }
         , Cmd.none
 
@@ -1093,9 +1100,6 @@ let private viewCodeEditor (model: Model) dispatch =
                         o.fontFamily <- Some fontFamily
                         o.fontLigatures <- Some (fontFamily = "Fira Code")
                     )
-
-    console.log(model.FSharpCode.Length)
-    console.log(model.CodeES2015.Length)
 
     ReactEditor.editor [
         editor.options options
