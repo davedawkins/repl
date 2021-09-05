@@ -37,16 +37,7 @@ module private State =
         saveState(_key, _fsharpCode |> List.map (fun x -> x.Name) |> Array.ofList, _fsharpCode |> List.map (fun x -> x.Content) |> Array.ofList, _html, _cssCode)
 
     let load (_key : string ) =
-        let res = loadState _key
-        //Browser.Dom.console.dir(res)
-        res
-        // with
-        //     |x ->
-        //         System.Console.WriteLine("loadState: failed: " + x.Message)
-        //         { new ISavedState with
-        //             member _.code = [| { Name = ""; Content = "" } |]
-        //             member _.html = ""
-        //             member _.css = "" }
+        loadState _key
 
     let update (_fsharpCode : FSharpCodeFile list, _htmlCode : string, _cssCode : string) =
         updateQuery(_fsharpCode |> List.map (fun x -> x.Name) |> Array.ofList, _fsharpCode |> List.map (fun x -> x.Content) |> Array.ofList, _htmlCode, _cssCode)
@@ -79,9 +70,20 @@ type EditorCollapse =
     | HtmlOnly
     | FSharpOnly
 
+type FileEditor = {
+    // Gives us access to main editor container, file name, IStandaloneEditor etc
+    ReactEditor : IReactEditor
+
+    // Tooltip/definition/completion to be cleaned up
+    Disposable : System.IDisposable option
+
+    // Compiles code every 1s for tooltips,etc.
+    Parser : GenericObservable<unit> option
+}
+
 type Model =
     {
-        FSharpEditors: Map<string,IEditor>
+        FSharpEditors: List<FileEditor> // FileName -> FileEditor
         JsEditor: IEditor
         Worker: ObservableWorker<WorkerAnswer>
         State: State
@@ -103,11 +105,15 @@ type Model =
 type EndCompileStatus = Result<string[] * Fable.Standalone.Error[], string>
 
 type Msg =
-    | SetFSharpEditor of (string*IEditor)
+    | SetFSharpEditor of (string*IReactEditor)
+    | SetDisposableForEditor of (IReactEditor*System.IDisposable)
+    | DisposeFSharpEditor of IReactEditor
     | SetJsEditor of IEditor
     | LoadSuccess of version: string
     | LoadFail
-    | ParseEditorCode
+    | ActivateParsingFor of FileEditor
+    | SetParser of (FileEditor*GenericObservable<unit>)
+    | ParseEditorCode of IReactEditor
     | Reset
     | UrlHashChange
     | GistLoaded of string*string*string
@@ -250,24 +256,82 @@ type MyUnion =
 
 open FSharp.Reflection
 
+let private createParser (fileEd : FileEditor) dispatch =
+    //JS.console.log($"createParser for {fileEd.ReactEditor.FileName}")
+    let obs = createObservable(fun trigger ->
+        fileEd.ReactEditor.Editor.getModel().onDidChangeContent(fun _ ->
+            trigger()) |> ignore)
+
+    debounce 1000 obs
+        |> Observable.add (fun () -> dispatch (ParseEditorCode fileEd.ReactEditor))
+
+    //obs.Trigger()
+    obs
+
 // let test(u: MyUnion) =
 //     match u with
 //     | U1(bar) ->
 
-let update msg (model : Model) =
-    match msg with
-    | LoadSuccess version ->
-        let activateParsingFor (editor:IEditor) dispatch =
-            let obs = createObservable(fun trigger ->
-                editor.getModel().onDidChangeContent(fun _ -> trigger()) |> ignore)
-            debounce 1000 obs
-            |> Observable.add (fun () -> dispatch ParseEditorCode)
-            obs.Trigger() // Trigger a first parse
+// let logEditors model =
+//     model.FSharpEditors
+//         |> List.iter (fun fileEd ->
+//             if (isNull fileEd.ReactEditor.Editor) then
+//                 JS.console.log(" - " + fileEd.ReactEditor.FileName
+//                     + " react id=" + fileEd.ReactEditor.Id.ToString()
+//                     + " editor is null ")
+//             else
+//                 JS.console.log(" - " + fileEd.ReactEditor.FileName
+//                     + " react id=" + fileEd.ReactEditor.Id.ToString()
+//                     + " editor id=" + fileEd.ReactEditor.Editor.getId() + " value=" + Util.truncate(fileEd.ReactEditor.Editor.getValue()))
+//             ()
+//         )
 
+let update msg (model : Model) =
+
+    // let updateMsg = $"update {msg}" |> Util.truncate
+    // if not (updateMsg.Contains("Mouse")) then
+    //     JS.console.log(updateMsg)
+
+    match msg with
+
+    | SetParser (fileEd,parser) ->
+        let mutable found = false
+        let editors =
+            model.FSharpEditors
+            |> List.map (fun ed ->
+                match ed.ReactEditor.Id = fileEd.ReactEditor.Id with
+                |true ->
+                    found <- true
+                    parser.Trigger()
+                    { ed with Parser = Some parser }
+                |false -> ed
+                )
+        if not found then
+            JS.console.error("No editor found for " + fileEd.ReactEditor.FileName, model.FSharpEditors |> List.toArray)
+            //logEditors model
+
+        { model with FSharpEditors = editors }, Cmd.none
+
+    | ActivateParsingFor fileEd ->
+        let activate fileEd dispatch =
+            let p = createParser fileEd dispatch
+            (fileEd,p) |> SetParser |> dispatch
+
+        let cmd =
+            if model.State = State.Loading then
+                Cmd.none
+            else
+                [ activate fileEd ]
+
+        model, cmd
+
+    | LoadSuccess version ->
         let activateParsing dispatch =
-            for kv in model.FSharpEditors do
-                ()
-                //activateParsingFor kv.Value dispatch
+            model.FSharpEditors
+            |> List.filter (fun ed -> ed.Parser.IsNone)
+            |> List.iter (fun ed ->
+                let p = createParser ed dispatch
+                SetParser (ed,p) |> dispatch)
 
         let browserAdviceCommand =
             // if not ReactDeviceDetect.exports.isChrome
@@ -300,19 +364,50 @@ let update msg (model : Model) =
         }
         , showGlobalErrorToast msg
 
-    | ParseEditorCode ->
-        for kv in model.FSharpEditors do
-            let ed = kv.Value
-            let content = ed.getModel().getValue (Monaco.Editor.EndOfLinePreference.TextDefined, true)
-            ParseCode(content, model.Sidebar.Options.ToOtherFSharpOptions) |> model.Worker.Post
+    | ParseEditorCode ed ->
+        let name = ed.FileName
+
+        // TODO: Need to send dependent files, but the code for ed should come from ed.Editor.getModel().getValue()
+        //       or we need to make sure model.FSharpCode is synced with editors
+        //let content = ed.Editor.getModel().getValue (Monaco.Editor.EndOfLinePreference.TextDefined, true)
+        ParseFile(name, model.FSharpCode |> Array.ofList, model.Sidebar.Options.ToOtherFSharpOptions) |> model.Worker.Post
         model
         , Cmd.none
 
     | SetFSharpEditor (name,ed) ->
-        { model with
-            FSharpEditors = model.FSharpEditors.Add(name,ed)
+        let fileEditor = {
+            ReactEditor = ed
+            Disposable = None
+            Parser = None
         }
-        , Cmd.none
+
+        { model with
+                FSharpEditors = model.FSharpEditors @ [fileEditor ]
+            }, Cmd.ofMsg (ActivateParsingFor fileEditor)
+
+    | SetDisposableForEditor (ed,unsub) ->
+        let editors =
+            model.FSharpEditors
+            |> List.map (fun fe ->
+                if fe.ReactEditor = ed then
+                    { fe with Disposable = Some unsub }
+                else
+                    fe)
+
+        { model with FSharpEditors = editors }, Cmd.none
+
+    | DisposeFSharpEditor reactEd ->
+        model.FSharpEditors
+            |> List.tryFind (fun e -> e.ReactEditor = reactEd)
+            |> Option.iter (fun fe ->
+                fe.Disposable
+                    |> Option.iter (fun hp -> hp.Dispose())
+            )
+
+        let editors =
+            model.FSharpEditors |> List.filter (fun fe -> fe.ReactEditor <> reactEd)
+
+        { model with FSharpEditors = editors }, Cmd.none
 
     | SetJsEditor ed ->
         { model with
@@ -409,7 +504,7 @@ let update msg (model : Model) =
                 | Some code -> code
                 | None -> model.FSharpCode
             let opts = model.Sidebar.Options
-            CompileCodeArray(code |> Array.ofList, opts.ToOtherFSharpOptions) |> model.Worker.Post
+            CompileFiles(code |> Array.ofList, opts.ToOtherFSharpOptions) |> model.Worker.Post
 
             { model with
                 State = Compiling
@@ -584,7 +679,6 @@ let update msg (model : Model) =
                 model.FSharpCode |> List.map (fun fc -> if fc.Name = name then { Name = name; Content = newCode } else fc)
             | _ -> model.FSharpCode
 
-
         { model with
             FSharpCode = newFsCode
         }
@@ -663,7 +757,8 @@ let workerCmd (worker : ObservableWorker<_>)=
             | Loaded version ->
                 LoadSuccess version |> dispatch
             | LoadFailed -> LoadFail |> dispatch
-            | ParsedCode errors -> MarkEditorErrors errors |> dispatch
+            | ParsedCode errors ->
+                MarkEditorErrors errors |> dispatch
             | CompilationFinished (jsCode, errors, stats) ->
                 Ok(jsCode, errors) |> EndCompile |> dispatch
                 UpdateStats stats |> dispatch
@@ -695,7 +790,7 @@ let init () =
 
     {
         State = Loading
-        FSharpEditors = Map.empty
+        FSharpEditors = []
         JsEditor = Unchecked.defaultof<IEditor>
         Worker = worker
         IFrameUrl = ""
@@ -929,16 +1024,22 @@ let private problemsPanel (model:Model) dispatch =
 
 
 let private registerCompileCommand dispatch =
-    System.Func<_,_,_>(
-        fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+    System.Func<_,_>(
+        //fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+        fun (reactEditor : IReactEditor) ->
+            let editor = reactEditor.Editor
+            let monacoModule = reactEditor.Monaco
             let triggerCompile () = StartCompile None |> dispatch
             editor.addCommand(monacoModule.KeyMod.Alt ||| int Monaco.KeyCode.Enter, triggerCompile, "") |> ignore
             editor.addCommand(monacoModule.KeyMod.CtrlCmd ||| int Monaco.KeyCode.KEY_S, triggerCompile, "") |> ignore
     )
 
 let private onJsEditorDidMount model dispatch =
-    System.Func<_,_,_>(
-        fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+    System.Func<_,_>(
+        //fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+        fun (reactEditor : IReactEditor) ->
+            let editor = reactEditor.Editor
+            let monacoModule = reactEditor.Monaco
             if not (isNull editor) then
                 dispatch (SetJsEditor editor)
                 let triggerCompile () = RefreshIframe |> dispatch
@@ -946,29 +1047,42 @@ let private onJsEditorDidMount model dispatch =
                 editor.addCommand(monacoModule.KeyMod.CtrlCmd ||| int Monaco.KeyCode.KEY_S, triggerCompile, "") |> ignore
     )
 
-let private onFSharpEditorDidMount (name:string) model dispatch =
-    System.Func<_,_,_>(
-        fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+
+let private onFSharpEditorDidMount (name:string) (model : Model) dispatch =
+    System.Func<_,_>(
+        //fun (editor : Monaco.Editor.IStandaloneCodeEditor) (monacoModule : Monaco.IExports) ->
+        fun (reactEditor : IReactEditor) ->
+            let editor = reactEditor.Editor
+            let monacoModule = reactEditor.Monaco
             if not (isNull editor) then
-                dispatch (SetFSharpEditor (name,editor))
+                dispatch (SetFSharpEditor (name,reactEditor))
 
                 // Because we have access to the monacoModule here,
                 // register the different provider needed for F# editor
                 let getTooltip line column lineText =
                     async {
                         let id = System.Guid.NewGuid()
-                        return! model.Worker.PostAndAwaitResponse(GetTooltip(id, line, column, lineText), function
-                            | FoundTooltip(id2, lines) when id = id2 -> Some lines
-                            | _ -> None)
+
+                        // We should no longer see disposed editors here, but we will see hidden editors
+                        // It's odd, because those editors are still listening for hover events even when
+                        // their parent div is 'display:none'
+                        if (reactEditor.IsHidden || reactEditor.IsDisposed) then
+                            return [| |]
+                        else
+                            //console.log("Getting tooltip for " + reactEditor.FileName)
+                            return! model.Worker.PostAndAwaitResponse(GetTooltipForFile(id, reactEditor.FileName, line, column, lineText), function
+                                | FoundTooltip(id2, lines) when id = id2 ->
+                                    Some lines
+                                | _ -> None)
                     }
 
                 let tooltipProvider = Editor.createTooltipProvider getTooltip
-                monacoModule.languages.registerHoverProvider("fsharp", tooltipProvider) |> ignore
+                let unsubHover = monacoModule.languages.registerHoverProvider("fsharp", tooltipProvider)
 
                 let getDeclarationLocation uri line column lineText =
                     async {
                         let id = System.Guid.NewGuid()
-                        return! model.Worker.PostAndAwaitResponse(GetDeclarationLocation(id, line, column, lineText), function
+                        return! model.Worker.PostAndAwaitResponse(GetDeclarationLocationForFile(id, name, line, column, lineText), function
                             | FoundDeclarationLocation(id2, res) when id = id2 ->
                                 res |> Option.map (fun (line1, col1, line2, col2) ->
                                     uri, line1, col1, line2, col2) |> Some
@@ -977,22 +1091,30 @@ let private onFSharpEditorDidMount (name:string) model dispatch =
 
                 let editorUri = editor.getModel().uri
                 let definitionProvider = Editor.createDefinitionProvider (getDeclarationLocation editorUri)
-                monacoModule.languages.registerDefinitionProvider("fsharp", definitionProvider) |> ignore
+                let unsubDefn = monacoModule.languages.registerDefinitionProvider("fsharp", definitionProvider)
 
                 let getCompletion line column lineText =
                     async {
                         let id = System.Guid.NewGuid()
-                        return! model.Worker.PostAndAwaitResponse(GetCompletions(id, line, column, lineText), function
+                        return! model.Worker.PostAndAwaitResponse(GetCompletionsForFile(id, name, line, column, lineText), function
                             | FoundCompletions(id2, lines) when id = id2 -> Some lines
                             | _ -> None)
                     }
 
                 let completionProvider = Editor.createCompletionProvider getCompletion
-                monacoModule.languages.registerCompletionItemProvider("fsharp", completionProvider) |> ignore
+                let unsubCompletion = monacoModule.languages.registerCompletionItemProvider("fsharp", completionProvider)
 
-                (registerCompileCommand dispatch).Invoke(editor, monacoModule)
+                let unsubAll = { new System.IDisposable
+                    with
+                        member _.Dispose() =
+                            unsubHover.dispose()
+                            unsubDefn.dispose()
+                            unsubCompletion.dispose() }
+
+                dispatch (SetDisposableForEditor (reactEditor,unsubAll))
+
+                (registerCompileCommand dispatch).Invoke(reactEditor)
     )
-
 
 let private editorArea model dispatch =
     Html.div [
@@ -1007,6 +1129,7 @@ let private editorArea model dispatch =
             ReactEditor.editor [
                 editor.options (htmlEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
                 editor.value model.HtmlCode
+                editor.fileName "HTML"
                 editor.isHidden (model.CodeTab <> CodeTab.Html)
                 editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
                 editor.onChange (ChangeHtmlCode >> dispatch)
@@ -1016,6 +1139,7 @@ let private editorArea model dispatch =
             ReactEditor.editor [
                 editor.options (cssEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
                 editor.value model.CssCode
+                editor.fileName "CSS"
                 editor.isHidden (model.CodeTab <> CodeTab.Css)
                 editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
                 editor.onChange (ChangeCssCode >> dispatch)
@@ -1027,12 +1151,14 @@ let private editorArea model dispatch =
                 ReactEditor.editor [
                     editor.options (fsharpEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
                     editor.value fc.Content
+                    editor.fileName fc.Name
                     editor.isHidden (model.CodeTab <> (CodeTab.FSharp fc.Name))
                     editor.onChange (ChangeFsharpCode >> dispatch)
                     editor.errors model.FSharpErrors
                     editor.eventId "fsharp_cursor_jump"
                     editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
                     editor.editorDidMount (onFSharpEditorDidMount (fc.Name) model dispatch)
+                    editor.editorDidUnmount (System.Func<_,_>(DisposeFSharpEditor >> dispatch))
                 ]
 
             //problemsPanel model.IsProblemsPanelExpanded model.FSharpErrors model.CodeTab dispatch
@@ -1112,6 +1238,7 @@ let private viewCodeEditor (model: Model) dispatch =
         editor.isHidden (model.OutputTab <> OutputTab.Code)
         editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
         editor.editorDidMount (onJsEditorDidMount model dispatch)
+        editor.fileName "CODE"
     ]
 
 let private outputArea model dispatch =
