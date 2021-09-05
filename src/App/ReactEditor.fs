@@ -6,14 +6,35 @@ open Feliz
 open Browser.Types
 open Browser
 
+type IReactEditor =
+    [<Emit("$0.editor")>]
+    abstract Editor : Monaco.Editor.IStandaloneCodeEditor
+    [<Emit("$0.monaco")>]
+    abstract Monaco : Monaco.IExports
+    [<Emit("$0.props.fileName")>]
+    abstract FileName : string
+    [<Emit("$0.props.isHidden")>]
+    abstract IsHidden : bool
+    [<Emit("$0.editor === null")>]
+    abstract IsDisposed : bool
+    [<Emit("$0.id")>]
+    abstract Id : int
+
+
 [<Erase>]
 type editor =
     /// <summary>Triggered when the value of the Editor changed</summary>
-    static member inline onChange (f : string -> unit) = Interop.mkAttr "onChange" f 
+    static member inline onChange (f : string -> unit) = Interop.mkAttr "onChange" f
+    /// <summary>Triggered when the file name changed</summary>
+    static member inline onFileNameChanged (f : IReactEditor -> unit) = Interop.mkAttr "onFileNameChanged" f
+    /// <summary>Set the file name of the Editor</summary>
+    static member inline fileName (name : string) = Interop.mkAttr "fileName" name
     /// <summary>Set the value of the Editor</summary>
     static member inline value (value : string) = Interop.mkAttr "value" value
     /// <summary>Triggered when the Editor has been mounted</summary>
-    static member inline editorDidMount (f : System.Func<Monaco.Editor.IStandaloneCodeEditor, Monaco.IExports, unit>) = Interop.mkAttr "editorDidMount" f
+    static member inline editorDidMount (f : System.Func<IReactEditor, unit>) = Interop.mkAttr "editorDidMount" f
+    /// <summary>Triggered when the Editor has been unmounted</summary>
+    static member inline editorDidUnmount (f : System.Func<IReactEditor, unit>) = Interop.mkAttr "editorDidUnmount" f
     /// <summary>Option to pass to the Editor</summary>
     static member inline options (options : Monaco.Editor.IEditorConstructionOptions) = Interop.mkAttr "options" options
     /// <summary>Errors to set into the editor
@@ -34,7 +55,6 @@ type editor =
 type ReactEditor =
     static member inline editor (properties : IReactProperty list) =
         Interop.reactApi.createElement(import "default" "./js/react-editor.js", createObj !!properties)
-
 
 // /// Override style of the div container
 // let inline Style (css: CSSProp seq): Props =

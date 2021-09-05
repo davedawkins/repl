@@ -4,12 +4,15 @@ import PropTypes from 'prop-types';
 import ReactResizeDetector from 'react-resize-detector';
 
 
+let ids = 0
+
 class Editor extends React.Component {
     // editor = null;
     // monaco = null
 
     constructor(props) {
         super(props);
+        this.id = ++ids;
         this.state = {
             width: 0,
             height: 0
@@ -17,9 +20,9 @@ class Editor extends React.Component {
     }
 
     editorDidMount = (editor, monaco) => {
-        this.props.editorDidMount(editor, monaco);
         this.editor = editor;
         this.monaco = monaco;
+        this.props.editorDidMount(this); //editor, monaco);
 
         if (this.props.eventId !== null)
             window.addEventListener(this.props.eventId, ev => {
@@ -60,13 +63,30 @@ class Editor extends React.Component {
         if (prevProps.options !== this.props.options) {
             this.editor.updateOptions(this.props.options);
         }
+
+        if (prevProps.fileName !== this.props.fileName) {
+            this.props.onFileNameChanged(this);
+        }
+    }
+
+    componentDidMount() {
+        if (this.props.fileName !== "") {
+            this.props.onFileNameChanged(this);
+        }
+    }
+
+    componentWillUnmount() {
+        console.log("Unmounting " + this.props.fileName)
+        this.editor.dispose();
+        this.editor = null;
+        this.props.editorDidUnmount(this);
     }
 
     render() {
         let display = this.props.isHidden ? "none" : "block";
         let className = "react-editor " + this.props.customClass;
         return (
-            <div className={className} style={{ height: '100%', overflow: 'hidden', display: display }}>
+            <div className={className} x-filename={this.props.fileName} style={{ height: '100%', overflow: 'hidden', display: display }}>
                 <ReactResizeDetector handleWidth handleHeight onResize={this.onResize} />
                 <MonacoEditor
                     value={this.props.value}
@@ -86,22 +106,28 @@ Editor.propTypes = {
     onChange: PropTypes.func,
     value: PropTypes.string,
     editorDidMount: PropTypes.func,
+    editorDidUnmount: PropTypes.func,
     options: PropTypes.object,
     errors: PropTypes.array,
     eventId: PropTypes.string,
     isHidden: PropTypes.bool,
-    customClass: PropTypes.string
+    customClass: PropTypes.string,
+    fileName: PropTypes.string,
+    onFileNameChanged: PropTypes.func
 };
 
 Editor.defaultProps = {
     onChange: noop,
     value: "",
     editorDidMount: noop,
+    editorDidUnmount: noop,
     options: null,
     errors: [],
     eventId: null,
     isHidden: false,
-    customClass: ""
+    customClass: "",
+    fileName: "",
+    onFileNameChanged: noop
 };
 
 export default Editor;
