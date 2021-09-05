@@ -36,7 +36,8 @@
                     { "type": "menu-item", "label": "Static each blocks", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/StaticEach.fs" ] },
                     { "type": "menu-item", "label": "Static each with index", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/StaticEachWithIndex.fs" ] },
                     { "type": "menu-item", "label": "Each blocks", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/EachBlocks.fs" ] },
-                    { "type": "menu-item", "label": "Keyed-each blocks", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/KeyedEachBlocks.fs" ] }
+                    { "type": "menu-item", "label": "Keyed-each blocks", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/KeyedEachBlocks.fs" ] },
+                    { "type": "menu-item", "label": "Await blocks", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/AwaitBlocks.fs" ] }
                 ]
             },
             {
@@ -69,10 +70,18 @@
                     { "type": "menu-item", "label": "Numeric inputs", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/NumericInputs.fs" ]},
                     { "type": "menu-item", "label": "Checkbox inputs", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/CheckboxInputs.fs" ]},
                     { "type": "menu-item", "label": "Group inputs", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/GroupInputs.fs" ]},
+                    { "type": "menu-item", "label": "Textarea inputs", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/TextArea.fs" ]},
                     { "type": "menu-item", "label": "File inputs", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/FileInputs.fs" ]},
                     { "type": "menu-item", "label": "Select bindings", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/SelectBindings.fs" ]},
                     { "type": "menu-item", "label": "Select multiple", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/SelectMultiple.fs" ]},
                     { "type": "menu-item", "label": "Dimensions", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/Dimensions.fs" ]}
+                ]
+            },
+            {
+                "type": "sub-category",
+                "label": "Svg",
+                "children": [
+                    { "type": "menu-item", "label": "Bar chart", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/BarChart.fs" ]}
                 ]
             },
             {
@@ -87,13 +96,15 @@
                         "sutil-samples/TimerWithButton.fs",
                         "sutil-samples/DragDropListSort.fs",
                         "sutil-samples/SortableTimerList.fs"
-                        ]}
+                        ]},
+                    { "type": "menu-item", "label": "SAFE client", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/SafeClient.fs" ] }
                 ]
             },
             {
                 "type": "sub-category",
                 "label": "7Guis",
                 "children": [
+                    { "type": "menu-item", "label": "Cells", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/Cells.fs" ]},
                     { "type": "menu-item", "label": "CRUD", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/CRUD.fs" ]}
                 ]
             }
