@@ -115,8 +115,6 @@ let private addLinkTag (cssCode : string) =
         ""
 
 let generateHtmlBlobUrl (htmlCode : string) (cssCode : string) (jsCodeA : string array) (names: string array) =
-    console.dir(jsCodeA)
-
     // We need to convert import paths to absolute urls and add .js at the end if necessary
     let mapFableLib jsCode =
         let reg = Regex(@"^import (.*)""(fable-library|fable-repl-lib)(.*)""(.*)$", RegexOptions.Multiline)
