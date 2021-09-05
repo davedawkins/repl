@@ -22,8 +22,8 @@
     <Compile Include="Feliz.Engine/AttrEngine.fs" />
     <Compile Include="Feliz.Engine.Event/EventEngine.fs" />
 
-    <!-- <Compile Include="../../paket-files/davedawkins/Feliz.Engine.Bulma/src/Feliz.Engine.Bulma/Modifiers.fs" />
-    <Compile Include="../../paket-files/davedawkins/Feliz.Engine.Bulma/src/Feliz.Engine.Bulma/Bulma.fs" /> -->
+    <Compile Include="Feliz.Engine.Bulma/Modifiers.fs" />
+    <Compile Include="Feliz.Engine.Bulma/Bulma.fs" />
 
     <Compile Include="Sutil/Easing.fs" />
     <Compile Include="Sutil/Interop.fs" />
@@ -46,7 +46,7 @@
     <Compile Include="Sutil/MediaQuery.fs" />
     <Compile Include="Sutil/Navigable.fs" />
     <Compile Include="Sutil/Program.fs" />
-    <!-- <Compile Include="Sutil/Bulma.fs" /> -->
+    <Compile Include="Sutil/Bulma.fs" />
 
     <!-- <Compile Include="../../paket-files/elmish/elmish/src/prelude.fs" />
     <Compile Include="../../paket-files/elmish/elmish/src/cmd.fs" />
