@@ -86,8 +86,9 @@ div.is-loading {
 
         .brand {
             background-color: white;
-            height: $icon-dimensions-large;
+            //height: $icon-dimensions-large;
             display: flex;
+            flex-direction: column;
             padding-left: 12px;
             //justify-content: center;
             align-items: center;
@@ -98,6 +99,11 @@ div.is-loading {
 
             img {
                 width: 96px;
+            }
+
+            img.fable-png {
+                width: 16px;
+                height: 16px;
             }
 
             h4 {

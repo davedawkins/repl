@@ -238,8 +238,23 @@ let private sidebarContainer dispatch (sections : ReactElement list) =
             Html.div [
                 prop.className "brand"
                 prop.children [
-                    Html.img [
-                        prop.src "https://sutil.dev/images/logo-wide.png"
+                    Html.div [
+                        Html.a [
+                            prop.href "https://sutil.dev/"
+                            prop.children [
+                                Html.img [
+                                    prop.src "https://sutil.dev/images/logo-wide.png"
+                                ]
+                            ]
+                        ]
+                    ]
+                    Html.div [
+                        Html.text "Powered by "
+                        Html.img [
+                            prop.className "fable-png"
+                            prop.src "img/fable-ionide.png"
+                        ]
+                        Html.text " Fable"
                     ]
                     //Bulma.title.h4 "<#> sutil repl"
                 ]
