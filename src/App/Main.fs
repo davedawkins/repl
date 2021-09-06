@@ -759,8 +759,11 @@ let workerCmd (worker : ObservableWorker<_>)=
             | LoadFailed -> LoadFail |> dispatch
             | ParsedCode errors ->
                 MarkEditorErrors errors |> dispatch
+            | CompilationsFinished (jsCode, errors, stats) ->
+                Ok( jsCode, errors) |> EndCompile |> dispatch
+                UpdateStats stats |> dispatch
             | CompilationFinished (jsCode, errors, stats) ->
-                Ok(jsCode, errors) |> EndCompile |> dispatch
+                Ok( [| jsCode |], errors) |> EndCompile |> dispatch
                 UpdateStats stats |> dispatch
             | CompilerCrashed msg -> Error msg |> EndCompile |> dispatch
             // Do nothing, these will be handled by .PostAndAwaitResponse
