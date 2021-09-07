@@ -135,6 +135,7 @@ let mapErrorToMarker (errors: Error[]) =
             m.startColumn <- err.StartColumn + 1
             m.endColumn <- err.EndColumn + 1
             m.message <- err.Message
+            m.source <- Some err.FileName
             m.severity <-
                 match err.IsWarning with
                 | false -> Monaco.MarkerSeverity.Error

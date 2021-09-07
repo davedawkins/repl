@@ -1085,11 +1085,14 @@ let private onFSharpEditorDidMount (name:string) (model : Model) dispatch =
                 let getDeclarationLocation uri line column lineText =
                     async {
                         let id = System.Guid.NewGuid()
-                        return! model.Worker.PostAndAwaitResponse(GetDeclarationLocationForFile(id, name, line, column, lineText), function
-                            | FoundDeclarationLocation(id2, res) when id = id2 ->
-                                res |> Option.map (fun (line1, col1, line2, col2) ->
-                                    uri, line1, col1, line2, col2) |> Some
-                            | _ -> None)
+                        if (reactEditor.IsHidden || reactEditor.IsDisposed) then
+                            return None
+                        else
+                            return! model.Worker.PostAndAwaitResponse(GetDeclarationLocationForFile(id, name, line, column, lineText), function
+                                | FoundDeclarationLocation(id2, res) when id = id2 ->
+                                    res |> Option.map (fun (line1, col1, line2, col2) ->
+                                        uri, line1, col1, line2, col2) |> Some
+                                | _ -> None)
                     }
 
                 let editorUri = editor.getModel().uri
@@ -1099,9 +1102,12 @@ let private onFSharpEditorDidMount (name:string) (model : Model) dispatch =
                 let getCompletion line column lineText =
                     async {
                         let id = System.Guid.NewGuid()
-                        return! model.Worker.PostAndAwaitResponse(GetCompletionsForFile(id, name, line, column, lineText), function
-                            | FoundCompletions(id2, lines) when id = id2 -> Some lines
-                            | _ -> None)
+                        if (reactEditor.IsHidden || reactEditor.IsDisposed) then
+                            return [| |]
+                        else
+                            return! model.Worker.PostAndAwaitResponse(GetCompletionsForFile(id, name, line, column, lineText), function
+                                | FoundCompletions(id2, lines) when id = id2 -> Some lines
+                                | _ -> None)
                     }
 
                 let completionProvider = Editor.createCompletionProvider getCompletion
@@ -1151,13 +1157,14 @@ let private editorArea model dispatch =
 
             // F# editor
             for fc in model.FSharpCode do
+                let isHidden = (model.CodeTab <> (CodeTab.FSharp fc.Name))
                 ReactEditor.editor [
                     editor.options (fsharpEditorOptions model.Sidebar.Options.FontSize model.Sidebar.Options.FontFamily)
                     editor.value fc.Content
                     editor.fileName fc.Name
-                    editor.isHidden (model.CodeTab <> (CodeTab.FSharp fc.Name))
+                    editor.isHidden isHidden
                     editor.onChange (ChangeFsharpCode >> dispatch)
-                    editor.errors model.FSharpErrors
+                    editor.errors (model.FSharpErrors |> Array.filter (fun e -> e.source = Some fc.Name)) // Stop errors from hidden editors showing on current editor
                     editor.eventId "fsharp_cursor_jump"
                     editor.customClass (fontSizeClass model.Sidebar.Options.FontSize)
                     editor.editorDidMount (onFSharpEditorDidMount (fc.Name) model dispatch)
