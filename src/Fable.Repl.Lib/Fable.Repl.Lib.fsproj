@@ -46,6 +46,7 @@
     <Compile Include="Sutil/MediaQuery.fs" />
     <Compile Include="Sutil/Navigable.fs" />
     <Compile Include="Sutil/Program.fs" />
+    <Compile Include="Sutil/DataSimulation.fs" />
     <Compile Include="Sutil/Bulma.fs" />
 
     <!-- <Compile Include="../../paket-files/elmish/elmish/src/prelude.fs" />
