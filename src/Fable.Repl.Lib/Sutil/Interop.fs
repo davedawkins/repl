@@ -3,6 +3,9 @@ module Sutil.Interop
 open Fable.Core
 open Fable.Core.JsInterop
 
+[<Emit("Math.random()")>]
+let random() : float = jsNative
+
 [<Emit("new CustomEvent($0, $1)")>]
 let customEvent name data = jsNative
 
@@ -37,15 +40,9 @@ let getDefault<'a> (ob:obj) (name:string) (defaultValue : 'a): 'a =
 //[<Emit("typeof $0 === undefined")>]
 //let isUndefined (x: 'a) : bool = jsNative
 
-//[<ImportAll("../Sutil/proxy.js")>]
-let makeProxy<'T> ((a:'T),(b: obj -> unit )) : 'T =
-#if FABLE_REPL_LIB
-    importMember "${outPath}/proxy.js"
-#else
-    importMember "./proxy.js"
-#endif
-
-open Browser
+open Browser.Dom
+open Browser.CssExtensions
+open Browser.MediaQueryListExtensions
 
 [<Emit("typeof window !== 'undefined'")>]
 let windowIsDefined : bool = jsNative
@@ -71,3 +68,4 @@ type Window() =
             if windowIsDefined then window.removeEventListener(typ,listener)
         static member requestAnimationFrame callback =
             if windowIsDefined then window.requestAnimationFrame callback else 0.0
+
