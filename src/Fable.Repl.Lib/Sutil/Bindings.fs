@@ -84,28 +84,32 @@ let bindSub<'T> (source : IObservable<'T>) (handler : BuildContext -> 'T -> unit
     SutilNode.RegisterDisposable(ctx.Parent,unsub)
     unitResult(ctx,"bindSub")
 
-
-let bindFragment<'T>  (store : IObservable<'T>)  (element: 'T -> SutilElement) = nodeFactory <| fun ctx ->
+let bindElementCO<'T>  (store : IObservable<'T>) (element: IObservable<'T> -> SutilElement) (compare : 'T -> 'T -> bool)= nodeFactory <| fun ctx ->
     let mutable node = EmptyNode
     let vnode = NodeGroup("bind",ctx.Parent,ctx.Previous)
     let bindNode = GroupNode vnode
-    //vnode.Parent <- ctx.Parent
 
-    log($"bindFragment: {vnode.Id} ctx={ctx.Action} prev={ctx.Previous}")
+    log($"bindo: {vnode.Id} ctx={ctx.Action} prev={ctx.Previous}")
     ctx.AddChild bindNode
 
     let bindCtx = { ctx with Parent = bindNode }
-    let disposable = store |> Store.subscribe (fun next ->
+    let disposable = store |> Observable.distinctUntilChangedCompare compare |> Store.subscribe (fun next ->
         try
-            node <- build (element(next)) (bindCtx |> ContextHelpers.withReplace (node,vnode.NextDomNode))
+            node <- build (element(store)) (bindCtx |> ContextHelpers.withReplace (node,vnode.NextDomNode))
         with
-        | x -> Logging.error $"Exception in bind: {x.Message} parent {ctx.Parent} node {node.ToString()} node.Parent "
+        | x -> Logging.error $"Exception in bindo: {x.Message} parent {ctx.Parent} node {node.ToString()} node.Parent "
     )
 
     vnode.SetDispose (Helpers.unsubify disposable)
+    //vnode.SetDispose (fun _ -> JS.console.log("dispose binding"); disposable.Dispose())
 
     sutilResult bindNode
 
+let bindElement<'T>  (store : IObservable<'T>)  (element: 'T -> SutilElement) : SutilElement=
+    bindElementCO store (Store.current >> element) (fun _ _-> false)
+
+/// Backwards compatibility
+let bindFragment = bindElement
 
 let bindFragment2<'A,'B> (a : IObservable<'A>) (b : IObservable<'B>)  (element: ('A*'B) -> SutilElement) = nodeFactory <| fun ctx ->
     let mutable node : SutilNode = EmptyNode
@@ -125,6 +129,10 @@ let bindFragment2<'A,'B> (a : IObservable<'A>) (b : IObservable<'B>)  (element: 
     vnode.SetDispose (Helpers.unsubify d)
 
     sutilResult bindNode
+
+let bindElementKO<'T,'K when 'K : equality> (store : IObservable<'T>) (element: IObservable<'T> -> SutilElement) (key : 'T -> 'K) : SutilElement =
+    let compare a b = key a = key b
+    bindElementCO store element compare
 
 let bindPromiseStore<'T>  (p : ObservablePromise<'T>)
         (waiting : SutilElement)
@@ -599,9 +607,20 @@ module BindApi =
 
         /// Binding from value to a DOM fragment. Each change in value replaces the current DOM fragment
         /// with a new one.
-        static member fragment<'T>  (value : IObservable<'T>)  (element: 'T -> SutilElement) = bindFragment value element
+        static member el<'T>  (value : IObservable<'T>, element: 'T -> SutilElement) : SutilElement =
+            bindElement value element
+
+        static member el<'T,'K when 'K : equality>  (value : IObservable<'T>, key:'T->'K, element: IObservable<'T> -> SutilElement) : SutilElement =
+            bindElementKO value element key
+
+        /// Deprecated naming, use Bind.el
+        static member fragment<'T>  (value : IObservable<'T>)  (element: 'T -> SutilElement) = bindElement value element
+
 
         /// Binding from two values to a DOM fragment. See fragment<'T>
+        static member el2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindFragment2 valueA valueB element
+
+        /// Deprecated naming, use Bind.el
         static member fragment2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindFragment2 valueA valueB element
 
         static member selected<'T when 'T : equality>  (value : IObservable<'T list>, dispatch : 'T list -> unit) = bindSelected value dispatch
@@ -609,34 +628,55 @@ module BindApi =
         static member selected<'T when 'T : equality>  (store : IStore<'T option>) = bindSelectOptional store
         static member selected<'T when 'T : equality>  (store : IStore<'T>) = bindSelectSingle store
 
+        // -- Simple cases: 'T -> view ---------------------------
+
+        /// Bind collections to a simple template, with transitions
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, trans : TransitionAttribute list) =
             each items view trans
 
+        /// Bind collections to a simple template
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement) =
             each items view []
 
-        // Keyed
+        // -- Keyed ----------------------------------------------
+
+        /// Bind keyed collections to a simple template, with transitions
+        /// Deprecated: Use a view template that takes IObservable<'T>
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
             eachk items view key trans
 
-        // Keyed
+        /// Bind keyed collections to a simple template
+        /// Deprecated: Use a view template that takes IObservable<'T>
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, key:'T -> 'K) : SutilElement =
             eachk items view key []
 
-        static member each (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K,trans : TransitionAttribute list) : SutilElement =
-            eachiko items view key trans
+        /// Bind keyed collections to a simple template, with transitions
+        static member each (items:IObservable<list<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
+            eachiko items (snd>>view) (snd>>key) trans
 
-        static member each (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K) : SutilElement =
-            eachiko items view key []
+        /// Bind keyed collections to a simple template, with transitions
+        static member each (items:IObservable<list<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K) : SutilElement =
+            eachiko items (snd>>view) (snd>>key) []
 
+        // -- Indexed --------------------------------------------
         static member eachi (items:IObservable<list<'T>>, view : (int*'T) -> SutilElement, trans : TransitionAttribute list) : SutilElement =
             eachi items view trans
 
         static member eachi (items:IObservable<list<'T>>, view : (int*'T) -> SutilElement ) : SutilElement =
             eachi items view []
 
-        static member eachi (items:IObservable<list<'T>>, view : (IObservable<int>*IObservable<'T>) -> SutilElement, trans : TransitionAttribute list) : SutilElement =
+        // -- Observable views
+
+
+        static member eachi (items:IObservable<list<'T>>, view : IObservable<int> * IObservable<'T> -> SutilElement, trans : TransitionAttribute list) : SutilElement =
             eachio items view trans
 
-        static member eachi (items:IObservable<list<'T>>, view : (IObservable<int>*IObservable<'T>) -> SutilElement ) : SutilElement =
+        static member eachi (items:IObservable<list<'T>>, view : IObservable<int> * IObservable<'T> -> SutilElement ) : SutilElement =
             eachio items view []
+
+        static member eachi (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K,trans : TransitionAttribute list) : SutilElement =
+            eachiko items view key trans
+
+        static member eachi (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K) : SutilElement =
+            eachiko items view key []
+

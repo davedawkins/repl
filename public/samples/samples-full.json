@@ -97,8 +97,9 @@
                         "sutil-samples/DragDropListSort.fs",
                         "sutil-samples/SortableTimerList.fs"
                         ]},
-                    { "type": "menu-item", "label": "SAFE client", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/SafeClient.fs" ] }
-                ]
+                        { "type": "menu-item", "label": "SAFE client", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/SafeClient.fs" ] },
+                        { "type": "menu-item", "label": "Data Simulation", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/DataSim.fs" ] }
+                    ]
             },
             {
                 "type": "sub-category",

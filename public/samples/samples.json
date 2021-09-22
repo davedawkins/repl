@@ -87,8 +87,10 @@
                         "sutil-samples/TimerWithButton.fs",
                         "sutil-samples/DragDropListSort.fs",
                         "sutil-samples/SortableTimerList.fs"
-                        ]}
-                ]
+                        ]},
+                        { "type": "menu-item", "label": "Data Simulation", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/DataSim.fs" ] },
+                        { "type": "menu-item", "label": "Web Components", "htmlCode": "sutil.html", "fsharpCode": ["sutil-samples/WebComponents.fs" ] }
+                    ]
             },
             {
                 "type": "sub-category",
