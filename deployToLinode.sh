@@ -52,40 +52,21 @@ log "Deploying ${APPNAME} to ${USERHOST}:/${TARGETDIR}"
 log $HR
 log ""
 
-if [ "$DLLNAME" != "" ]; then
-    log "Writing supervisor configuration file into deploy directory"
 
-    cat > ${SOURCEDIR}/${APPNAME}.conf <<EOF
-    [program:${APPNAME}]
-    command=/usr/bin/dotnet ${TARGETDIR}/${DLLNAME}.dll
-    directory=${TARGETDIR}
-    autostart=true
-    autorestart=true
-    stderr_logfile=/var/log/${APPNAME}.err.log
-    stdout_logfile=/var/log/${APPNAME}.out.log
-    environment=ASPNETCORE_ENVIRONMENT=Production
-    user=deploy
-    stopsignal=INT
-EOF
+log "Adding remote installation script into deploy directory"
 
-    log "Adding remote installation script into deploy directory"
-
-    cat > ${SOURCEDIR}/localInstall.sh <<EOF2
-    #!/bin/bash
-    cp ${TARGETDIR}/${APPNAME}.conf /etc/supervisor/conf.d
-    sudo supervisorctl reread
-    sudo supervisorctl update
+cat > ${SOURCEDIR}/localInstall.sh <<EOF2
+#!/bin/bash
+ln -s ${TARGETDIR}/../sutil/samples ${TARGETDIR}/samples/sutil-samples
 EOF2
-fi
+
 
 log "Sending deploy directory to remote instance"
 
 cout rsync -avz -e 'ssh' ${SOURCEDIR}/. ${USERHOST}:${TARGETDIR} --delete
 
-if [ "$DLLNAME" != "" ]; then
-    log "Installing application under supervisor and starting"
-    cout ssh ${USERHOST} /bin/bash ${TARGETDIR}/localInstall.sh
-fi
+log "Installing application remotely"
+cout ssh ${USERHOST} /bin/bash ${TARGETDIR}/localInstall.sh
 
 log ""
 log "Deployment to ${USERHOST} completed"
