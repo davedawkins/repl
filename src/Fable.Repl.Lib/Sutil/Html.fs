@@ -8,6 +8,9 @@ open System
 // Dummy type to avoid problems with overload resolution in HtmlEngine
 type [<Fable.Core.Erase>] NodeAttr = NodeAttr of SutilElement
 
+type SutilEventEngine() =
+    inherit EventEngine<SutilElement>( fun (event:string) handler -> Sutil.Attr.on (event.ToLower()) handler [] )
+
 type SutilHtmlEngine() as this =
     inherit HtmlEngine<SutilElement>( el, text, (fun () -> fragment []) )
     member _.app (xs : seq<SutilElement>) : SutilElement = fragment xs
@@ -77,10 +80,17 @@ type SutilAttrEngine() =
             bindAttrBoth "value" value dispatch
 
     member _.style (cssAttrs : (string*obj) seq) = cssAttrs |> Sutil.Attr.style
+    member _.styleAppend (cssAttrs : (string*obj) seq) = cssAttrs |> Sutil.Attr.styleAppend
+    member _.style (cssAttrs : IObservable< #seq<string*obj> >) = Bind.style cssAttrs
+
+    member _.none = nodeFactory <| fun ctx -> unitResult(ctx,"none")
+
 
 let Html = SutilHtmlEngine()
 
 let Attr = SutilAttrEngine()
+
+let Ev = SutilEventEngine()
 
 let Css =  CssEngine(fun k v -> k, box v)
 
@@ -88,30 +98,11 @@ let cssAttr = id
 let addClass       (n:obj) = cssAttr("sutil-add-class",n)
 let useGlobal              = cssAttr("sutil-use-global","" :> obj)
 
+type Media() =
+    static member Custom (condition : string) rules = makeMediaRule condition rules
+    static member MinWidth (minWidth : Styles.ICssUnit, rules : StyleSheetDefinition list) = makeMediaRule (sprintf "(min-width: %s)" (string minWidth)) rules
+    static member MaxWidth (maxWidth : Styles.ICssUnit, rules : StyleSheetDefinition list) = makeMediaRule (sprintf "(max-width: %s)" (string maxWidth)) rules
+
 // Convenience
 let text s = DOM.text s
 
-let exampleVirtualNodes =
-    Html.div [
-        text "Hello"
-        fragment [
-            text "World"
-        ]
-        fragment [
-            text "A"
-            fragment [
-                text "B"
-            ]
-            text "C"
-        ]
-    ]
-
-(*
-
-   DIVElement
-      TextNode "Hello"
-      TextNode "World"
-      TextNode "A"
-      TextNode "B"
-      TextNode "C"
-*)

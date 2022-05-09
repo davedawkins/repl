@@ -22,7 +22,7 @@ open Fake.JavaScript
 open BlackFox.Fake
 
 let CWD = __SOURCE_DIRECTORY__
-let NCAVE_FCS_REPO = Path.Combine(CWD, "../fsharp_fable")
+let NCAVE_FCS_REPO = Path.Combine(CWD, "../fsharp_ncave")
 
 let LIBS_OUTPUT = Path.Combine(CWD, "public/libs")
 let REPL_OUTPUT = Path.Combine(CWD, "public/js/repl")

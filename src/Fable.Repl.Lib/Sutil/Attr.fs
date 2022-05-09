@@ -6,9 +6,9 @@ open Fable.Core.JsInterop
 
 let autofocus : SutilElement =
     nodeFactory <| fun ctx ->
-        let e = ctx.Parent
+        let e = ctx.ParentElement
         DOM.rafu (fun _ ->
-            e?focus()
+            e.focus()
             e?setSelectionRange(99999,99999)
             )
         unitResult(ctx, "autofocus")
@@ -20,7 +20,12 @@ let for' n         = attr("for",n)
 let class' n       = attr("class",n)
 let unclass n      = attr("class-", n)
 let unclass' n     = attr("class-", n)
-let style (cssAttrs: (string * obj) seq) = attr("style", cssAttrs |> Seq.map (fun (n,v) -> $"{n}: {v};") |> String.concat "")
+
+let style (cssAttrs: (string * obj) seq) =
+    attr("style", cssAttrs |> Seq.map (fun (n,v) -> $"{n}: {v};") |> String.concat "")
+
+let styleAppend (cssAttrs: (string * obj) seq) =
+    attr("style+", cssAttrs |> Seq.map (fun (n,v) -> $"{n}: {v};") |> String.concat "")
 
 // Events
 

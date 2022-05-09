@@ -51,6 +51,7 @@ module Event =
     let Show = "sutil-show"
     let Hide = "sutil-hide"
     let Updated = "sutil-updated"
+    let Connected = "sutil-connected"
     //let NewStore = "sutil-new-store"
     //let DisposeStore = "sutil-dispose-store"
 
@@ -263,6 +264,10 @@ let listen (event:string) (e:EventTarget) (fn: (Event -> unit)) : (unit -> unit)
 let raf (f : float -> unit) = Window.requestAnimationFrame( fun t -> try f t with|x -> Logging.error $"raf: {x.Message}" )
 let rafu (f : unit -> unit) = Window.requestAnimationFrame( fun _ -> try f() with|x -> Logging.error $"rafu: {x.Message}" ) |> ignore
 
+let anyof (events : string list) (target:EventTarget) (fn : Event->Unit) : unit =
+    let rec inner e = events |> List.iter (fun e -> target.removeEventListener( e, inner )); fn(e)
+    events |> List.iter (fun e -> listen e target inner |> ignore)
+
 let once (event:string) (target:EventTarget) (fn : Event->Unit) : unit =
     let rec inner e = target.removeEventListener( event, inner ); fn(e)
     listen event target inner |> ignore
@@ -301,13 +306,42 @@ type StyleRule = {
     Style : (string*obj) list
 }
 
-type StyleSheet = StyleRule list
+type KeyFrame = {
+    StartAt: int
+    Style : (string * obj) list
+}
+type KeyFrames = {
+    Name : string
+    Frames : KeyFrame list
+}
+
+type MediaRule = {
+    Condition : string
+    Rules : StyleSheetDefinition list
+}
+and  StyleSheetDefinition =
+    | Rule of StyleRule
+    | KeyFrames of KeyFrames
+    | MediaRule of MediaRule
+
+type StyleSheet = StyleSheetDefinition list
 
 type NamedStyleSheet = {
     Name : string
     StyleSheet : StyleSheet
     Parent : NamedStyleSheet option
 }
+
+let makeMediaRule condition rules =
+    MediaRule {
+        Condition = condition
+        Rules = rules
+    }
+
+let rulesOf (styleSheet : StyleSheet) =
+    styleSheet
+        |> List.map (function Rule r -> Some r | _ -> None)
+        |> List.choose id
 
 let rec private forEachChild (parent:Node) (f : Node -> unit) =
     let mutable child = parent.firstChild
@@ -940,13 +974,20 @@ type BuildContext =
         member ctx.AddChild (node: SutilNode) : unit =
             match ctx.Action with
             | Nothing -> ()
+
             | Append ->
                 log $"ctx.Append '{node}' to '{ctx.Parent}' after {ctx.Previous}"
                 ctx.Parent.InsertAfter(node,ctx.Previous)
 
+                if (ctx.Parent.IsConnected()) then
+                    node.collectDomNodes() |> List.iter (fun n -> dispatchSimple n Event.Connected)
+
             | Replace (existing,insertBefore)->
                 log $"ctx.Replace '{existing}' with '{node}' before '{nodeStrShort insertBefore}'"
                 ctx.Parent.ReplaceGroup(node,existing,insertBefore)
+
+                if (ctx.Parent.IsConnected()) then
+                    node.collectDomNodes() |> List.iter (fun n -> dispatchSimple n Event.Connected)
 
             ()
 
@@ -1090,7 +1131,7 @@ let getSutilClasses (e:HTMLElement) =
 let rec applyCustomRules (namedSheet:NamedStyleSheet) (e:HTMLElement) =
     // TODO: Remove all classes added by previous calls to this function
     // TODO: Store them in a custom attribute on 'e'
-    let sheet = namedSheet.StyleSheet
+    let sheet = namedSheet.StyleSheet |> rulesOf
     for rule in sheet |> List.filter (ruleMatchEl e) do
         for custom in rule.Style |> List.filter (fun (nm,v) -> nm.StartsWith("sutil")) do
             match custom with
@@ -1112,7 +1153,10 @@ let rec applyCustomRules (namedSheet:NamedStyleSheet) (e:HTMLElement) =
 
 let build (f : SutilElement) (ctx : BuildContext) =
     let result = f.Builder ctx
+    //if (nodeIsConnected ctx.ParentElement) then
     result.collectDomNodes() |> List.iter (fun n -> dispatchSimple n Event.Mount)
+    //else
+    //    Fable.Core.JS.console.log("Cannot issue mount when not connected: " + (nodeStrShort ctx.ParentElement))
     result
 
 let asDomNode (element:SutilNode) (ctx : BuildContext) : Node =
@@ -1146,23 +1190,42 @@ let findSvIdElement (doc : Document) id : HTMLElement =
 
 let splitBySpace (s:string) = s.Split([|' '|],StringSplitOptions.RemoveEmptyEntries)
 
+let setClass (className : string) (e:HTMLElement) =
+    e.className <- className
+
 let addToClasslist classes (e:HTMLElement) =
     e.classList.add( classes |> splitBySpace )
 
 let removeFromClasslist classes (e:HTMLElement) =
     e.classList.remove( classes |> splitBySpace )
 
+let nullToEmpty s =
+    if isNull s then "" else s
+
 let setAttribute (el:HTMLElement) (name:string) (value:obj) =
+    let isBooleanAttribute name = (name= "hidden" || name = "disabled" || name = "readonly" || name = "required")
     let svalue = string value
     if name = "class" then
         el |> addToClasslist svalue
     else  if name = "class-" then
         el |> removeFromClasslist svalue
-    else if svalue = "false" && (name = "disabled" || name = "readonly" || name = "required") then
-        el.removeAttribute( name )
+    else if isBooleanAttribute name then
+        let bValue =
+            if value :? bool then
+                value :?> bool
+            else
+                svalue <> "false"
+        // we'd call el.toggleAttribute( name, bValue) if it was available
+        if bValue then
+            el.setAttribute( name, "" )
+        else
+            el.removeAttribute name
+
     else if name = "value" then
         Interop.set el "__value" value // raw value
         Interop.set el "value" svalue //
+    else if name = "style+" then
+        el.setAttribute("style", (nullToEmpty (el.getAttribute("style"))) + svalue )
     else
         el.setAttribute( name, svalue )
 
@@ -1365,7 +1428,7 @@ let mountOnShadowRoot app (host : Node) : (unit -> unit)=
         failwith "Custom components must return at least one node"
 
     let dispose() =
-        JS.console.log($"mountOnShadowRoot: disposing {el}")
+        //JS.console.log($"mountOnShadowRoot: disposing {el}")
         el.Dispose()
     dispose
 
@@ -1447,6 +1510,19 @@ let el tag (xs : seq<SutilElement>) : SutilElement = nodeFactory <| fun ctx ->
 
     domResult e
 
+let elAppend selector (xs : seq<SutilElement>) : SutilElement = nodeFactory <| fun ctx ->
+    let e : Element = ctx.Document.querySelector(selector)
+    if isNull e then
+        failwith ("Not found " + selector)
+    let snodeEl = DomNode e
+
+    let id = domId()
+    log("append <" + selector + "> #" + string id)
+    setSvId e id
+
+    ctx |> ContextHelpers.withParent snodeEl |> buildChildren xs
+
+    unitResult(ctx,"elAppend")
 (*
 let buildSolitaryElement (f : SutilElement) ctx : HTMLElement =
     log $"buildSolitaryElement: {ctx.Action}"
@@ -1495,3 +1571,9 @@ let html text : SutilElement = nodeFactory <| fun ctx ->
                                             applyCustomRules ns ch)
         Event.notifyUpdated ctx.Document)
     sutilResult <| ctx.Parent
+
+let host (render : HTMLElement -> unit) = nodeFactory <| fun ctx ->
+    ctx.ParentElement |> render
+    unitResult(ctx,"host")
+
+let nothing = nodeFactory <| fun ctx -> unitResult(ctx, "nothing")

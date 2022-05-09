@@ -1,73 +1,6 @@
 [<AutoOpen>]
 module Sutil.Bindings
 
-(*
-
-Grouping cases
-
-1. Fragment
-
-        div [
-            div "Header"
-            fragment [
-                p "Body 1"
-                p "Body 2"
-            ]
-            div "Footer"
-        ]
-
-        <div>
-            <div>Header</div>
-            <p>Body 1</p>
-            <p>Body 2</p>
-            <div>Footer</div>
-        </div>
-
-2. Binding to text
-
-        div [
-            div "Header"
-            bind store (fun v -> text (string v))
-            div "Footer"
-        ]
-
-3. Binding to element
-
-        div [
-            div "Header"
-            bind store (fun v -> div (string v))
-            div "Footer"
-        ]
-
-4. Binding to fragment
-
-        div [
-            div "Header"
-            bind store (fun v -> fragment [
-                div "Value is"
-                div (string v)
-            ])
-            div "Footer"
-        ]
-
-5. Each of element
-        div [
-            div "Header"
-            each items (fun item -> div (string item))
-            div "Footer"
-        ]
-
-6. Each of fragment - not supported as yet - use a div wrapper
-
-7. Each of binding
-        div [
-            div "Header"
-            each items (fun item -> div (string item))
-            div "Footer"
-        ]
-*)
-
-
 open Transition
 open DOM
 open Browser.Types
@@ -78,11 +11,37 @@ let private log s = Logging.log "bind" s
 
 let private bindId = Helpers.makeIdGenerator()
 
-// All bindings ought to either end up calling this or at least doing the same registration
+// Binding helper
 let bindSub<'T> (source : IObservable<'T>) (handler : BuildContext -> 'T -> unit) = nodeFactory <| fun ctx ->
     let unsub = source.Subscribe( handler ctx )
     SutilNode.RegisterDisposable(ctx.Parent,unsub)
     unitResult(ctx,"bindSub")
+
+
+let bindElementC<'T>  (store : IObservable<'T>) (element: 'T -> SutilElement) (compare : 'T -> 'T -> bool)= nodeFactory <| fun ctx ->
+    let mutable node = EmptyNode
+    let group = SutilNode.MakeGroup("bind",ctx.Parent,ctx.Previous)
+    let bindNode = GroupNode group
+
+    log($"bind: {group.Id} ctx={ctx.Action} prev={ctx.Previous}")
+    ctx.AddChild bindNode
+
+    let run() =
+        let bindCtx = { ctx with Parent = bindNode }
+        let disposable = store |> Observable.distinctUntilChangedCompare compare |> Store.subscribe (fun next ->
+            try
+                log($"bind: rebuild {group.Id} with {next}")
+                node <- build (element(next)) (bindCtx |> ContextHelpers.withReplace (node,group.NextDomNode))
+            with
+            | x -> Logging.error $"Exception in bindo: {x.Message} parent {ctx.Parent} node {node.ToString()} node.Parent "
+        )
+        group.SetDispose ( fun () ->
+            log($"dispose: Bind.el: {group}")
+            disposable.Dispose())
+
+    run()
+
+    sutilResult bindNode
 
 let bindElementCO<'T>  (store : IObservable<'T>) (element: IObservable<'T> -> SutilElement) (compare : 'T -> 'T -> bool)= nodeFactory <| fun ctx ->
     let mutable node = EmptyNode
@@ -116,7 +75,7 @@ let bindElement<'T>  (store : IObservable<'T>)  (element: 'T -> SutilElement) : 
 /// Backwards compatibility
 let bindFragment = bindElement
 
-let bindFragment2<'A,'B> (a : IObservable<'A>) (b : IObservable<'B>)  (element: ('A*'B) -> SutilElement) = nodeFactory <| fun ctx ->
+let bindElement2<'A,'B> (a : IObservable<'A>) (b : IObservable<'B>)  (element: ('A*'B) -> SutilElement) = nodeFactory <| fun ctx ->
     let mutable node : SutilNode = EmptyNode
     let group = SutilNode.MakeGroup("bind2",ctx.Parent,ctx.Previous)
     let bindNode = GroupNode group
@@ -139,12 +98,16 @@ let bindElementKO<'T,'K when 'K : equality> (store : IObservable<'T>) (element: 
     let compare a b = key a = key b
     bindElementCO store element compare
 
+let bindElementK<'T,'K when 'K : equality> (store : IObservable<'T>) (element: 'T -> SutilElement) (key : 'T -> 'K) : SutilElement =
+    let compare a b = key a = key b
+    bindElementC store element compare
+
 let bindPromiseStore<'T>  (p : ObservablePromise<'T>)
         (waiting : SutilElement)
         (result: 'T -> SutilElement)
         (fail : Exception -> SutilElement)
         : SutilElement =
-    bindFragment p <| (function
+    bindElement p <| (function
         | Waiting -> waiting
         | Result r -> result r
         | Error x -> fail x)
@@ -273,12 +236,26 @@ let bindRadioGroup<'T> (store:Store<'T>) : SutilElement = nodeFactory <| fun ctx
 
     unitResult(ctx,"bindRadioGroup")
 
-let bindClass (toggle:IObservable<bool>) (classes:string) =
+let bindClassToggle (toggle:IObservable<bool>) (classesWhenTrue:string) (classesWhenFalse:string) =
     bindSub toggle <| fun ctx active ->
         if active then
-            ctx.ParentElement |> addToClasslist classes
+            ctx.ParentElement |> removeFromClasslist classesWhenFalse
+            ctx.ParentElement |> addToClasslist classesWhenTrue
         else
-            ctx.ParentElement |> removeFromClasslist classes
+            ctx.ParentElement |> removeFromClasslist classesWhenTrue
+            ctx.ParentElement |> addToClasslist classesWhenFalse
+
+// Deprecated
+let bindClass (toggle:IObservable<bool>) (classes:string) = bindClassToggle toggle classes ""
+
+let bindClassNames (classNames:IObservable<#seq<string>>)  =
+    bindSub classNames <| fun ctx current ->
+        ctx.ParentElement.className <- ""
+        ctx.ParentElement.classList.add( current |> Array.ofSeq )
+
+let bindClassName (classNames:IObservable<string>)  =
+    bindSub classNames <| fun ctx current ->
+        ctx.ParentElement.className <- current
 
 // Bind a store value to an element attribute. Updates to the element are unhandled
 let bindAttrIn<'T> (attrName:string) (store : IObservable<'T>) : SutilElement = nodeFactory <| fun ctx ->
@@ -305,7 +282,7 @@ let attrNotify<'T> (attrName:string) (value :'T) (onchange : 'T -> unit) : Sutil
     let unsubInput = listen "input" parent  <| fun _ ->
         Interop.get parent attrName |> onchange
     Interop.set parent attrName value
-    SutilNode.RegisterUnsubscribe(ctx.Parent,unsubInput)
+    SutilNode.RegisterUnsubscribe(ctx.Parent, unsubInput)
     unitResult(ctx,"attrNotify")
 
 // Bind an observable value to an element attribute. Listen for onchange events and dispatch the
@@ -407,7 +384,7 @@ let private findCurrentElement doc (current:Node) (id:int) =
 
 let private genEachId = Helpers.makeIdGenerator()
 
-let eachiko (items:IObservable<list<'T>>) (view : IObservable<int> * IObservable<'T> -> SutilElement) (key:int*'T->'K) (trans : TransitionAttribute list) : SutilElement =
+let eachiko_list (items:IObservable<list<'T>>) (view : IObservable<int> * IObservable<'T> -> SutilElement) (key:int*'T->'K) (trans : TransitionAttribute list) : SutilElement =
     let log s = Logging.log "each" s
     nodeFactory <| fun ctx ->
         log($"eachiko: Previous = {ctx.Previous}")
@@ -519,7 +496,7 @@ let eachiko (items:IObservable<list<'T>>) (view : IObservable<int> * IObservable
                     if not(isSameNode prevDomNode el.previousSibling) then
                         log($"reordering: ki={nodeStr el} prevNode={nodeStr prevDomNode}")
                         log($"reordering key {ki.Key} {nodeStrShort el} parent={el.parentNode}")
-                        ctx.Parent.RemoveChild(el) |> ignore
+                        //ctx.Parent.RemoveChild(el) |> ignore
                         ctx.Parent.InsertAfter(el, prevDomNode)
                     prevDomNode <- el
 
@@ -531,23 +508,153 @@ let eachiko (items:IObservable<list<'T>>) (view : IObservable<int> * IObservable
         eachGroup.SetDispose (Helpers.unsubify unsub)
         sutilResult eachNode
 
+let eachiko (items:IObservable<ICollectionWrapper<'T>>) (view : IObservable<int> * IObservable<'T> -> SutilElement) (key:int*'T->'K) (trans : TransitionAttribute list) : SutilElement =
+    let log s = Logging.log "each" s
+    nodeFactory <| fun ctx ->
+        log($"eachiko: Previous = {ctx.Previous}")
+        let eachGroup = SutilNode.MakeGroup("each",ctx.Parent,ctx.Previous)
+        let eachNode = GroupNode eachGroup
+        ctx.AddChild eachNode
+
+        let mutable state = ([| |] : KeyedStoreItem<'T,'K> array) .ToCollectionWrapper()
+        let eachId = genEachId() + 1
+        let idKey = "svEachId"
+        let hasEid (n : Node) = Interop.exists n idKey
+        let eachIdOf n : int = if hasEid n then  Interop.get n idKey else -1
+        let setEid n = Interop.set n idKey eachId
+        let eachCtx = ctx |> ContextHelpers.withParent eachNode
+
+        let logState state' =
+            Browser.Dom.console.groupCollapsed("each state #" + eachGroup.Id)
+            state' |> List.map (fun s -> sprintf "%s %f,%f" (string s.Key) s.Rect.left s.Rect.top) |> List.iter (fun s -> log(s))
+            Browser.Dom.console.groupEnd()
+
+        let logItems (items : list<'T>) =
+            Browser.Dom.console.groupCollapsed("each items #" + eachGroup.Id)
+            items |> List.mapi (fun i s -> sprintf "%s" (string (key(i,s)))) |> List.iter (fun s -> log(s))
+            Browser.Dom.console.groupEnd()
+
+        let unsub = items |> Store.subscribe (fun newItems ->
+            let wantAnimate = true
+
+            log("-- Each Block Render -------------------------------------")
+            log($"caching rects for render. Previous: {state |> CollectionWrapper.length} items. Current {newItems |> CollectionWrapper.length} items")
+
+            state <- state |> CollectionWrapper.map (fun ki ->
+                let el = findCurrentElement ctx.Document (*ki.Element*)null ki.SvId
+                { ki with (*Element = el; *)Rect = el.getBoundingClientRect() })
+
+            //logItems newItems
+            //logState state
+
+            // Last child that doesn't have our eachId
+            log($"Previous = {ctx.Previous}")
+            //let prevNodeInit : Node = vnode.PrevDomNode
+            let mutable prevNode = EmptyNode
+
+            let newState = newItems |> CollectionWrapper.mapi (fun itemIndex item ->
+                let itemKey = key(itemIndex,item)
+                let optKi = state |> CollectionWrapper.tryFind (fun x -> x.Key = itemKey)
+                match optKi with
+                | None ->
+                    let storePos = Store.make itemIndex
+                    let storeVal = Store.make item
+                    let ctx2 = eachCtx |> ContextHelpers.withPrevious prevNode
+                    DomEdit.log $"++ creating new item '{item}' (key={itemKey}) with prev='{prevNode}' action={ctx2.Action}"
+                    let sutilNode = ctx2 |> build (view (storePos,storeVal))
+                    let itemNode = ctx2 |> asDomElement sutilNode
+                    DomEdit.log $"-- created #{svId itemNode} with prev='{nodeStrShort (itemNode.previousSibling)}'"
+                    setEid itemNode
+                    SutilNode.RegisterDisposable(itemNode,storePos)
+                    SutilNode.RegisterDisposable(itemNode,storeVal)
+                    transitionNode itemNode trans [Key (string itemKey)] true ignore ignore
+                    let newKi = {
+                        SvId = svId itemNode
+                        Key = itemKey
+                        Node = sutilNode
+                        //CachedElement = itemNode
+                        Position = storePos
+                        Rect = itemNode.getBoundingClientRect()
+                        Value = storeVal
+                    }
+
+                    let prevEl = itemNode.previousSibling :?> HTMLElement
+                    log $"new item #{newKi.SvId} eid={eachIdOf itemNode} {itemKey} {rectStr newKi.Rect} prevNode={prevNode} prevSibling={nodeStr prevEl}"
+                    prevNode <- sutilNode
+                    newKi
+                | Some ki ->
+                    ki.Position |> Store.modify (fun _ -> itemIndex)
+                    ki.Value |> Store.modify (fun _ -> item)
+                    let el = findCurrentElement ctx.Document null ki.SvId (*ki.Element*)
+                    log $"existing item {ki.SvId} {ki.Key} {rectStr ki.Rect}"
+                    if wantAnimate then
+                        clearAnimations el
+                        animateNode el (ki.Rect)
+                    prevNode <- ki.Node
+                    ki
+            )
+
+            //logState newState
+
+            log("Remove old items")
+            // Remove old items
+            for oldItem in state do
+                if not (newState |> CollectionWrapper.exists (fun x -> x.Key = oldItem.Key)) then
+                    log($"removing key {oldItem.Key}")
+                    let el = findCurrentElement ctx.Document null oldItem.SvId (*oldItem.Element*)
+                    fixPosition el
+                    //ctx.Parent.RemoveChild(el) |> ignore
+                    ctx.Parent.InsertBefore(el,null) |> ignore
+                    //oldItem.Node.Dispose()
+                    transitionNode el trans [Key (string oldItem.Key)] false
+                        ignore (fun e -> eachGroup.RemoveChild(oldItem.Node))
+
+            //ctx.Parent.PrettyPrint("each #" + vnode.Id + ": before reorder")
+
+            // Reorder
+            let mutable prevDomNode = eachGroup.PrevDomNode
+            for ki in newState do
+                log($"Re-order: #{ki.SvId}")
+                let el = findCurrentElement ctx.Document null ki.SvId (*ki.Element*)
+                if not (isNull el) then
+                    if not(isSameNode prevDomNode el.previousSibling) then
+                        log($"reordering: ki={nodeStr el} prevNode={nodeStr prevDomNode}")
+                        log($"reordering key {ki.Key} {nodeStrShort el} parent={el.parentNode}")
+                        //ctx.Parent.RemoveChild(el) |> ignore
+                        ctx.Parent.InsertAfter(el, prevDomNode)
+                    prevDomNode <- el
+
+            //ctx.Parent.PrettyPrint("each #" + vnode.Id + ": after reorder")
+
+            state <- newState
+        )
+
+        eachGroup.SetDispose (Helpers.unsubify unsub)
+        sutilResult eachNode
+
+//let eachiko (items:IObservable<List<'T>>) (view : IObservable<int> * IObservable<'T> -> SutilElement) (key:int*'T->'K) (trans : TransitionAttribute list) : SutilElement =
+//    eachiko_ (items |> Store.map (fun x -> x.ToEachCollection())) view key trans
+
 let private duc = Observable.distinctUntilChanged
 
-let each (items:IObservable<list<'T>>) (view : 'T -> SutilElement) (trans : TransitionAttribute list) =
-    eachiko items (fun (_,item) -> bindFragment (duc item) view) (fun (i,v) -> i,v.GetHashCode()) trans
+let each (items:IObservable<ICollectionWrapper<'T>>) (view : 'T -> SutilElement) (trans : TransitionAttribute list) =
+    eachiko items (fun (_,item) -> bindElement (duc item) view) (fun (i,v) -> i,v.GetHashCode()) trans
 
-let eachi (items:IObservable<list<'T>>) (view : (int*'T) -> SutilElement)  (trans : TransitionAttribute list) : SutilElement =
-    eachiko items (fun (index,item) -> bindFragment2 (duc index) (duc item) view) fst trans
+let eachi (items:IObservable<ICollectionWrapper<'T>>) (view : (int*'T) -> SutilElement)  (trans : TransitionAttribute list) : SutilElement =
+    eachiko items (fun (index,item) -> bindElement2 (duc index) (duc item) view) fst trans
 
-let eachio (items:IObservable<list<'T>>) (view : (IObservable<int>*IObservable<'T>) -> SutilElement)  (trans : TransitionAttribute list) =
+let eachio (items:IObservable<ICollectionWrapper<'T>>) (view : (IObservable<int>*IObservable<'T>) -> SutilElement)  (trans : TransitionAttribute list) =
     eachiko items view fst trans
 
-let eachk (items:IObservable<list<'T>>) (view : 'T -> SutilElement)  (key:'T -> 'K) (trans : TransitionAttribute list) =
+let eachk (items:IObservable<ICollectionWrapper<'T>>) (view : 'T -> SutilElement)  (key:'T -> 'K) (trans : TransitionAttribute list) =
     eachiko
         items
-        (fun (_,item) -> bindFragment (duc item) view)
+        (fun (_,item) -> bindElement (duc item) view)
         (snd>>key)
         trans
+
+(*
+    // This is best done with (say) Bind.toggleClass and an event handler updating a store
 
 //
 // Turn events into an IObservable using a map function
@@ -562,6 +669,7 @@ let bindEvent<'T> (event:string) (map:Event -> 'T) (app:IObservable<'T> -> DOM.S
 
 let bindEventU<'T> (event:string) (map:Event -> 'T) (app:IObservable<'T> -> unit) : DOM.SutilElement =
      bindEvent event map (fun s -> app(s); fragment[])
+*)
 
 let bindStore<'T> (init:'T) (app:Store<'T> -> DOM.SutilElement) : DOM.SutilElement = nodeFactory <| fun ctx ->
     let s = Store.make init
@@ -571,8 +679,9 @@ let bindStore<'T> (init:'T) (app:Store<'T> -> DOM.SutilElement) : DOM.SutilEleme
 let declareStore<'T> (init : 'T) (f : Store<'T> -> unit) =
     declareResource (fun () -> Store.make init) f
 
-let (|=>) a b = bindFragment a b
+let (|=>) store element = bindElement store element
 
+(*
 let selectApp (selectors : (IObservable<bool> * (unit ->SutilElement)) list) = nodeFactory <| fun ctx ->
     let s = selectors |> List.map fst |> firstOf
     let apps = selectors |> List.map snd |> Array.ofList
@@ -583,7 +692,7 @@ let selectApp (selectors : (IObservable<bool> * (unit ->SutilElement)) list) = n
     )
 
     unitResult(ctx,"selectApp")
-
+*)
 
 // BindApi is a way for me to refactor this module into a public-facing documentation API with
 // overloads where appropriate.
@@ -591,7 +700,20 @@ let selectApp (selectors : (IObservable<bool> * (unit ->SutilElement)) list) = n
 
 [<AutoOpen>]
 module BindApi =
+
+    let private cssAttrsToString (cssAttrs) =
+        cssAttrs |> Seq.map (fun (n,v) -> $"{n}: {v};") |> String.concat ""
+
+    let listWrap( list : 'T list ) = list.ToCollectionWrapper()
+    let listWrapO (list : IObservable<'T list>) = list |> Store.map listWrap
+
+    let arrayWrap( list : 'T array ) = list.ToCollectionWrapper()
+    let arrayWrapO (list : IObservable<'T array>) = list |> Store.map arrayWrap
     type Bind =
+
+        static member visibility( isVisible : IObservable<bool>) = Transition.transition [] isVisible
+        static member visibility( isVisible : IObservable<bool>,trans : TransitionAttribute list) = Transition.transition trans isVisible
+
         /// Dual-binding for a given attribute. Changes to value are written to the attribute, while
         /// changes to the attribute are written back to the store. Note that an IStore is also
         /// an IObservable, for which a separate overload exists.
@@ -609,11 +731,28 @@ module BindApi =
         static member attr<'T> (name:string, value: IObservable<'T>, dispatch: 'T -> unit) =
             bindAttrBoth name value dispatch
 
+        static member style (attrs : IObservable<#seq<string * obj>>) =
+            Bind.attr("style", attrs |> Store.map cssAttrsToString)
+
+        static member toggleClass (toggle:IObservable<bool>, activeClass : string, inactiveClass : string) =
+            bindClassToggle toggle activeClass inactiveClass
+
+        static member toggleClass (toggle:IObservable<bool>, activeClass : string) =
+            bindClassToggle toggle activeClass ""
+
+        static member className (name:IObservable<string>) =
+            bindClassName name
+
+        static member classNames (name:IObservable<#seq<string>>) =
+            bindClassNames name
 
         /// Binding from value to a DOM fragment. Each change in value replaces the current DOM fragment
         /// with a new one.
         static member el<'T>  (value : IObservable<'T>, element: 'T -> SutilElement) : SutilElement =
             bindElement value element
+
+        static member el<'T,'K when 'K : equality>  (value : IObservable<'T>, key:'T->'K, element: 'T -> SutilElement) : SutilElement =
+            bindElementK value element key
 
         static member el<'T,'K when 'K : equality>  (value : IObservable<'T>, key:'T->'K, element: IObservable<'T> -> SutilElement) : SutilElement =
             bindElementKO value element key
@@ -621,12 +760,11 @@ module BindApi =
         /// Deprecated naming, use Bind.el
         static member fragment<'T>  (value : IObservable<'T>)  (element: 'T -> SutilElement) = bindElement value element
 
-
         /// Binding from two values to a DOM fragment. See fragment<'T>
-        static member el2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindFragment2 valueA valueB element
+        static member el2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindElement2 valueA valueB element
 
         /// Deprecated naming, use Bind.el
-        static member fragment2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindFragment2 valueA valueB element
+        static member fragment2<'A,'B>  (valueA : IObservable<'A>) (valueB : IObservable<'B>) (element: 'A * 'B -> SutilElement) = bindElement2 valueA valueB element
 
         static member selected<'T when 'T : equality>  (value : IObservable<'T list>, dispatch : 'T list -> unit) = bindSelected value dispatch
         static member selected<'T when 'T : equality>  (store : IStore<'T list>) = bindSelectMultiple store
@@ -635,53 +773,87 @@ module BindApi =
 
         // -- Simple cases: 'T -> view ---------------------------
 
-        /// Bind collections to a simple template, with transitions
+        /// Bind lists to a simple template, with transitions
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, trans : TransitionAttribute list) =
-            each items view trans
+            each (listWrapO items) view trans
 
-        /// Bind collections to a simple template
+        /// Bind lists to a simple template
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement) =
-            each items view []
+            each (listWrapO items) view []
 
         // -- Keyed ----------------------------------------------
 
-        /// Bind keyed collections to a simple template, with transitions
+        /// Bind keyed lists to a simple template, with transitions
         /// Deprecated: Use a view template that takes IObservable<'T>
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
-            eachk items view key trans
+            eachk (listWrapO items) view key trans
 
-        /// Bind keyed collections to a simple template
+        /// Bind keyed lists to a simple template
         /// Deprecated: Use a view template that takes IObservable<'T>
         static member each (items:IObservable<list<'T>>, view : 'T -> SutilElement, key:'T -> 'K) : SutilElement =
-            eachk items view key []
+            eachk (listWrapO items) view key []
 
-        /// Bind keyed collections to a simple template, with transitions
+        /// Bind keyed lists to a simple template, with transitions
         static member each (items:IObservable<list<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
-            eachiko items (snd>>view) (snd>>key) trans
+            eachiko (listWrapO items) (snd>>view) (snd>>key) trans
 
-        /// Bind keyed collections to a simple template, with transitions
+        /// Bind keyed lists to a simple template, with transitions
         static member each (items:IObservable<list<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K) : SutilElement =
-            eachiko items (snd>>view) (snd>>key) []
+            eachiko (listWrapO items) (snd>>view) (snd>>key) []
 
-        // -- Indexed --------------------------------------------
+        // -- Indexed Lists --------------------------------------------
+
         static member eachi (items:IObservable<list<'T>>, view : (int*'T) -> SutilElement, trans : TransitionAttribute list) : SutilElement =
-            eachi items view trans
+            eachi (listWrapO items) view trans
 
         static member eachi (items:IObservable<list<'T>>, view : (int*'T) -> SutilElement ) : SutilElement =
-            eachi items view []
+            eachi (listWrapO items) view []
 
         // -- Observable views
-
-
         static member eachi (items:IObservable<list<'T>>, view : IObservable<int> * IObservable<'T> -> SutilElement, trans : TransitionAttribute list) : SutilElement =
-            eachio items view trans
+            eachio (listWrapO items) view trans
 
         static member eachi (items:IObservable<list<'T>>, view : IObservable<int> * IObservable<'T> -> SutilElement ) : SutilElement =
-            eachio items view []
+            eachio (listWrapO items) view []
 
         static member eachi (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K,trans : TransitionAttribute list) : SutilElement =
-            eachiko items view key trans
+            eachiko (listWrapO items) view key trans
 
         static member eachi (items:IObservable<list<'T>>,view : IObservable<int> * IObservable<'T> -> SutilElement,key:int*'T->'K) : SutilElement =
-            eachiko items view key []
+            eachiko (listWrapO items) view key []
+
+        type BindArray =
+            /// Bind arrays to a simple template, with transitions
+            static member each (items:IObservable<'T []>, view : 'T -> SutilElement, trans : TransitionAttribute list) =
+                each (arrayWrapO items) view trans
+
+            /// Bind arrays to a simple template
+            static member each (items:IObservable<'T []>, view : 'T -> SutilElement) =
+                each (arrayWrapO items) view []
+
+            /// Bind keyed arrays to a simple template, with transitions
+            /// Deprecated: Use a view template that takes IObservable<'T>
+            static member each (items:IObservable<array<'T>>, view : 'T -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
+                eachk (arrayWrapO items) view key trans
+
+            /// Bind keyed arrays to a simple template
+            /// Deprecated: Use a view template that takes IObservable<'T>
+            static member each (items:IObservable<array<'T>>, view : 'T -> SutilElement, key:'T -> 'K) : SutilElement =
+                eachk (arrayWrapO items) view key []
+
+            /// Bind keyed arrays to a simple template, with transitions
+            static member each (items:IObservable<array<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K, trans : TransitionAttribute list) : SutilElement =
+                eachiko (arrayWrapO items) (snd>>view) (snd>>key) trans
+
+            /// Bind keyed arrays to a simple template, with transitions
+            static member each (items:IObservable<array<'T>>, view : IObservable<'T> -> SutilElement, key:'T -> 'K) : SutilElement =
+                eachiko (arrayWrapO items) (snd>>view) (snd>>key) []
+
+            // -- Indexed Arrays --------------------------------------------
+
+            static member eachi (items:IObservable<array<'T>>, view : (int*'T) -> SutilElement, trans : TransitionAttribute list) : SutilElement =
+                eachi (arrayWrapO items) view trans
+
+            static member eachi (items:IObservable<array<'T>>, view : (int*'T) -> SutilElement ) : SutilElement =
+                eachi (arrayWrapO items) view []
 

@@ -1,7 +1,7 @@
 # This expects to be run from repo root dir and have ncave's F# compiler fork
 # and Fable repos in sibling folders
 
-NCAVE_FSHARP_REPO=fsharp_fable
+NCAVE_FSHARP_REPO=fsharp_ncave
 REPL_REPO=repl
 
 set -x # Output commands as they're executed

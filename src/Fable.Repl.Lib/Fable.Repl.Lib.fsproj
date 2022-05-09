@@ -25,6 +25,8 @@
     <Compile Include="Feliz.Engine.Bulma/Modifiers.fs" />
     <Compile Include="Feliz.Engine.Bulma/Bulma.fs" />
 
+    <Compile Include="ConstructStyleSheetsPolyfill/ConstructStyleSheetsPolyfill.fs" />
+
     <Compile Include="Sutil/Easing.fs" />
     <Compile Include="Sutil/Interop.fs" />
     <Compile Include="Sutil/Types.fs" />
