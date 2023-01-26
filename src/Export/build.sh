@@ -9,7 +9,7 @@ set -x # Output commands as they're executed
 dotnet build src/Fable.Repl.Lib
 
 cd ../$NCAVE_FSHARP_REPO
-git checkout export
+git checkout export_2021-05-13
 dotnet build -c Release src/buildtools/buildtools.proj
 dotnet build -c Release src/fsharp/FSharp.Compiler.Service
 

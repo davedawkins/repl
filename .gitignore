@@ -43,3 +43,4 @@ public/*.ttf
 public/*.woff
 
 *.DS_Store
+src/metadata

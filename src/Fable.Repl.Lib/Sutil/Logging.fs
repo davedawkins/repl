@@ -1,4 +1,5 @@
-module Sutil.Logging
+///  <exclude />
+module internal Sutil.Logging
 
 open System.Collections.Generic
 open Browser.Dom

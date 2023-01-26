@@ -103,13 +103,13 @@ NUGET
       FSharp.Core (>= 4.7.2)
 GITHUB
   remote: fable-compiler/fable-promise
-    FULLPROJECT (78dfb5e8138b6d74865cc19fa7e04a6991cce1ec)
+    FULLPROJECT (dac50fcf2ed27d1f0b1ed0fab5a3e721fc2efefc)
   remote: alfonsogarciacaro/Feliz.Engine
-    FULLPROJECT (f636934d4d9ae2826a142673f92ece89de428605)
+    FULLPROJECT (61152aebd6c0b7878bfc4db05e2e10724b434a3e)
   remote: davedawkins/Feliz.Engine.Bulma
-    FULLPROJECT (e960f99e842b362f6cc54524d857d12557da520b)
+    FULLPROJECT (9504b9d5a43f5c3ef84086815076ebed1948b162)
   remote: davedawkins/Sutil
-    FULLPROJECT (5f4967ee505988e49ac8b1a34e8c4a61f82230b0)
+    FULLPROJECT (0885a50f4a368a4ff4a56cc8726ab1872bfb9406)
 GROUP netcorebuild
 NUGET
   remote: https://www.nuget.org/api/v2

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
@@ -12,8 +12,8 @@
 
   <ItemGroup>
     <!-- <ProjectReference Include="../../src/fsharp/FSharp.Compiler.Service/FSharp.Compiler.Service.fsproj" /> -->
-    <Reference Include="../../../fsharp_fable/artifacts/bin/FSharp.Compiler.Service/Release/netstandard2.0/FSharp.Core.dll" />
-    <Reference Include="../../../fsharp_fable/artifacts/bin/FSharp.Compiler.Service/Release/netstandard2.0/FSharp.Compiler.Service.dll" />
+    <Reference Include="../../../fsharp_ncave/artifacts/bin/FSharp.Compiler.Service/Release/netstandard2.0/FSharp.Core.dll" />
+    <Reference Include="../../../fsharp_ncave/artifacts/bin/FSharp.Compiler.Service/Release/netstandard2.0/FSharp.Compiler.Service.dll" />
   </ItemGroup>
 
   <ItemGroup>
