@@ -1,3 +1,4 @@
+rm src/Fable.Repl.Lib/Sutil/*
 cp ../../Sutil/src/Sutil/*.fs src/Fable.Repl.Lib/Sutil
 cp ../../Sutil/src/Sutil/webcomponentinterop.js src/Fable.Repl.Lib/Sutil
 bash src/Export/build.sh
